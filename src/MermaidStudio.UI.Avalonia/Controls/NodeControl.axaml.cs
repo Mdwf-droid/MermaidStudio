@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using MermaidStudio.Domain.Nodes;
 
 namespace MermaidStudio.UI.Avalonia.Controls;
@@ -14,10 +15,13 @@ public partial class NodeControl : UserControl
     private double _startLeft;
     private double _startTop;
     private Node? _node;
+    private Border? _rootBorder;
 
     public NodeControl()
     {
         AvaloniaXamlLoader.Load(this);
+
+        _rootBorder = this.FindControl<Border>("RootBorder");
 
         DataContextChanged += (_, _) =>
         {
@@ -27,6 +31,16 @@ public partial class NodeControl : UserControl
         AddHandler(PointerPressedEvent, OnPointerPressed, RoutingStrategies.Bubble);
         AddHandler(PointerMovedEvent, OnPointerMoved, RoutingStrategies.Bubble);
         AddHandler(PointerReleasedEvent, OnPointerReleased, RoutingStrategies.Bubble);
+    }
+
+    public void SetSelected(bool selected)
+    {
+        if (_rootBorder == null)
+            return;
+
+        _rootBorder.BorderBrush = selected
+            ? Brushes.DodgerBlue
+            : new SolidColorBrush(Color.Parse("#6A6A6A"));
     }
 
     private void OnPointerPressed(object? sender, PointerPressedEventArgs e)

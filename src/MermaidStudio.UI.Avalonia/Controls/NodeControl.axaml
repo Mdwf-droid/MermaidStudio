@@ -5,7 +5,8 @@
              Width="120"
              Height="50">
 
-	<Border Background="#2D2D30"
+	<Border x:Name="RootBorder"
+            Background="#2D2D30"
             BorderBrush="#6A6A6A"
             BorderThickness="2"
             CornerRadius="6">
