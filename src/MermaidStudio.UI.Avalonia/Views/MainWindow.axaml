@@ -19,7 +19,7 @@
                 BorderThickness="0,0,0,1"
                 Padding="8">
 			<DockPanel>
-				<TextBlock Text="MermaidStudio — S10 Edge labels"
+				<TextBlock Text="MermaidStudio — S12 Edge styles &amp; direction"
                            Foreground="White"
                            VerticalAlignment="Center"/>
 
@@ -62,7 +62,7 @@
                 BorderBrush="#333333"
                 BorderThickness="1,0,0,0"
                 Padding="8">
-			<Grid RowDefinitions="Auto,Auto,Auto,16,Auto,Auto,Auto,16,Auto,*">
+			<Grid RowDefinitions="Auto,Auto,Auto,16,Auto,Auto,Auto,Auto,Auto,16,Auto,*">
 
 				<!-- S7 : édition du label du node -->
 				<TextBlock Text="Selected node label"
@@ -97,13 +97,40 @@
                         IsEnabled="False"
                         Click="OnApplyEdgeLabelClicked"/>
 
+				<!-- S12 : style + direction de l’edge -->
+				<ComboBox x:Name="SelectedEdgeStyleComboBox"
+                          Grid.Row="7"
+                          Margin="0,8,0,0"
+                          IsEnabled="False"
+                          SelectedIndex="0">
+					<ComboBoxItem Content="Default" />
+					<ComboBoxItem Content="Dashed" />
+					<ComboBoxItem Content="Thick" />
+				</ComboBox>
+
+				<ComboBox x:Name="SelectedEdgeDirectionComboBox"
+                          Grid.Row="8"
+                          Margin="0,8,0,0"
+                          IsEnabled="False"
+                          SelectedIndex="0">
+					<ComboBoxItem Content="Forward" />
+					<ComboBoxItem Content="Reverse" />
+				</ComboBox>
+
+				<Button x:Name="ApplyEdgeStyleButton"
+                        Grid.Row="9"
+                        Margin="0,8,0,0"
+                        Content="Apply Edge Style"
+                        IsEnabled="False"
+                        Click="OnApplyEdgeStyleClicked"/>
+
 				<!-- S6.A/S6.B : panneau Mermaid -->
-				<TextBlock Grid.Row="8"
+				<TextBlock Grid.Row="10"
                            Text="Mermaid output"
                            Foreground="White"/>
 
 				<TextBox x:Name="MermaidOutputTextBox"
-                         Grid.Row="9"
+                         Grid.Row="11"
                          Margin="0,8,0,0"
                          AcceptsReturn="True"
                          IsReadOnly="True"

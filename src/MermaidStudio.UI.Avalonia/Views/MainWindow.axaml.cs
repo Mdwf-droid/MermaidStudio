@@ -49,6 +49,18 @@ public partial class MainWindow : Window
         => this.FindControl<Button>("ApplyEdgeLabelButton")
            ?? throw new InvalidOperationException("ApplyEdgeLabelButton introuvable dans MainWindow.");
 
+    private ComboBox GetSelectedEdgeStyleComboBox()
+        => this.FindControl<ComboBox>("SelectedEdgeStyleComboBox")
+           ?? throw new InvalidOperationException("SelectedEdgeStyleComboBox introuvable dans MainWindow.");
+
+    private ComboBox GetSelectedEdgeDirectionComboBox()
+        => this.FindControl<ComboBox>("SelectedEdgeDirectionComboBox")
+           ?? throw new InvalidOperationException("SelectedEdgeDirectionComboBox introuvable dans MainWindow.");
+
+    private Button GetApplyEdgeStyleButton()
+        => this.FindControl<Button>("ApplyEdgeStyleButton")
+           ?? throw new InvalidOperationException("ApplyEdgeStyleButton introuvable dans MainWindow.");
+
     private TextBox GetMermaidOutputTextBox()
         => this.FindControl<TextBox>("MermaidOutputTextBox")
            ?? throw new InvalidOperationException("MermaidOutputTextBox introuvable dans MainWindow.");
@@ -70,7 +82,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Si un node/edge/port a déjà géré l’événement, le canvas ne fait rien
         if (e.Handled)
             return;
 
@@ -91,14 +102,12 @@ public partial class MainWindow : Window
             DataContext = nodeModel
         };
 
-        // Sélection node
         newNode.AddHandler(
             PointerPressedEvent,
             OnNodePressed,
             RoutingStrategies.Bubble,
             handledEventsToo: true);
 
-        // Preview / commit edge
         newNode.PortPreviewStarted += OnPortPreviewStarted;
         newNode.PortPreviewMoved += OnPortPreviewMoved;
         newNode.PortPreviewEnded += OnPortPreviewEnded;
@@ -197,7 +206,10 @@ public partial class MainWindow : Window
         var nodeButton = GetApplyNodeLabelButton();
 
         var edgeTextBox = GetSelectedEdgeLabelTextBox();
-        var edgeButton = GetApplyEdgeLabelButton();
+        var edgeLabelButton = GetApplyEdgeLabelButton();
+        var edgeStyleCombo = GetSelectedEdgeStyleComboBox();
+        var edgeDirectionCombo = GetSelectedEdgeDirectionComboBox();
+        var edgeStyleButton = GetApplyEdgeStyleButton();
 
         // Node sélectionné
         if (_selectedNode?.DataContext is Node selectedNodeModel &&
@@ -221,14 +233,39 @@ public partial class MainWindow : Window
         if (_selectedEdge != null && canvas.Children.Contains(_selectedEdge))
         {
             edgeTextBox.IsEnabled = true;
-            edgeButton.IsEnabled = true;
+            edgeLabelButton.IsEnabled = true;
             edgeTextBox.Text = _selectedEdge.Label;
+
+            edgeStyleCombo.IsEnabled = true;
+            edgeDirectionCombo.IsEnabled = true;
+            edgeStyleButton.IsEnabled = true;
+
+            edgeStyleCombo.SelectedIndex = _selectedEdge.StyleKind switch
+            {
+                EdgeStyleKind.Default => 0,
+                EdgeStyleKind.Dashed => 1,
+                EdgeStyleKind.Thick => 2,
+                _ => 0
+            };
+
+            edgeDirectionCombo.SelectedIndex = _selectedEdge.Direction switch
+            {
+                EdgeDirection.Forward => 0,
+                EdgeDirection.Reverse => 1,
+                _ => 0
+            };
         }
         else
         {
             edgeTextBox.IsEnabled = false;
-            edgeButton.IsEnabled = false;
+            edgeLabelButton.IsEnabled = false;
             edgeTextBox.Text = string.Empty;
+
+            edgeStyleCombo.IsEnabled = false;
+            edgeDirectionCombo.IsEnabled = false;
+            edgeStyleButton.IsEnabled = false;
+            edgeStyleCombo.SelectedIndex = 0;
+            edgeDirectionCombo.SelectedIndex = 0;
 
             if (_selectedEdge != null && !canvas.Children.Contains(_selectedEdge))
                 _selectedEdge = null;
@@ -261,6 +298,30 @@ public partial class MainWindow : Window
         var newLabel = textBox.Text?.Trim() ?? string.Empty;
 
         _selectedEdge.Label = newLabel;
+        RefreshInspector();
+    }
+
+    private void OnApplyEdgeStyleClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_selectedEdge == null)
+            return;
+
+        var styleCombo = GetSelectedEdgeStyleComboBox();
+        var directionCombo = GetSelectedEdgeDirectionComboBox();
+
+        _selectedEdge.StyleKind = styleCombo.SelectedIndex switch
+        {
+            1 => EdgeStyleKind.Dashed,
+            2 => EdgeStyleKind.Thick,
+            _ => EdgeStyleKind.Default
+        };
+
+        _selectedEdge.Direction = directionCombo.SelectedIndex switch
+        {
+            1 => EdgeDirection.Reverse,
+            _ => EdgeDirection.Forward
+        };
+
         RefreshInspector();
     }
 
@@ -390,22 +451,47 @@ public partial class MainWindow : Window
         }
 
         foreach (var edge in _edges
-                     .OrderBy(e => (e.SourceNode.DataContext as Node)?.Id.Value, StringComparer.Ordinal)
-                     .ThenBy(e => (e.TargetNode.DataContext as Node)?.Id.Value, StringComparer.Ordinal))
+                     .OrderBy(e => GetExportSourceNode(e)?.Id.Value, StringComparer.Ordinal)
+                     .ThenBy(e => GetExportTargetNode(e)?.Id.Value, StringComparer.Ordinal))
         {
-            var sourceNode = edge.SourceNode.DataContext as Node;
-            var targetNode = edge.TargetNode.DataContext as Node;
+            var sourceNode = GetExportSourceNode(edge);
+            var targetNode = GetExportTargetNode(edge);
 
             if (sourceNode == null || targetNode == null)
                 continue;
 
+            var arrowToken = edge.StyleKind switch
+            {
+                EdgeStyleKind.Dashed => "-.->",
+                EdgeStyleKind.Thick => "==>",
+                _ => "-->"
+            };
+
             if (string.IsNullOrWhiteSpace(edge.Label))
-                sb.AppendLine($"    {sourceNode.Id.Value} --> {targetNode.Id.Value}");
+            {
+                sb.AppendLine($"    {sourceNode.Id.Value} {arrowToken} {targetNode.Id.Value}");
+            }
             else
-                sb.AppendLine($"    {sourceNode.Id.Value} -->|{Escape(edge.Label)}| {targetNode.Id.Value}");
+            {
+                sb.AppendLine($"    {sourceNode.Id.Value} {arrowToken}|{Escape(edge.Label)}| {targetNode.Id.Value}");
+            }
         }
 
         return sb.ToString();
+    }
+
+    private Node? GetExportSourceNode(EdgeControl edge)
+    {
+        return edge.Direction == EdgeDirection.Forward
+            ? edge.SourceNode.DataContext as Node
+            : edge.TargetNode.DataContext as Node;
+    }
+
+    private Node? GetExportTargetNode(EdgeControl edge)
+    {
+        return edge.Direction == EdgeDirection.Forward
+            ? edge.TargetNode.DataContext as Node
+            : edge.SourceNode.DataContext as Node;
     }
 
     private string GetSelectedFlowDirection()
