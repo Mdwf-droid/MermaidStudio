@@ -39,8 +39,8 @@ public sealed class EdgeControl : Canvas
     private bool _detached;
     private bool _selected;
 
-    // S12.B : la pointe de flèche est toujours dessinée à droite du node
-    private const double ArrowTipOffset = 12.0;
+    // Flèche légèrement dégagée du node d’arrivée
+    private const double ArrowTipOffset = 10.0;
 
     public NodeControl SourceNode => _source;
     public NodeControl TargetNode => _target;
@@ -202,22 +202,30 @@ public sealed class EdgeControl : Canvas
         if (_detached)
             return;
 
-        var p1 = _source.GetRightPortCenter(_parentCanvas);
-        var p2 = _target.GetRightPortCenter(_parentCanvas);
+        // 1) Extrémités sémantiques effectives
+        var visualStartNode = _direction == EdgeDirection.Forward ? _source : _target;
+        var visualEndNode = _direction == EdgeDirection.Forward ? _target : _source;
 
-        // La ligne hit-test garde les points "réels"
-        _hitLine.StartPoint = p1;
-        _hitLine.EndPoint = p2;
+        // 2) Ancrage intelligent basé sur le sens effectif
+        var (startSide, endSide) = ComputeAnchorSides(visualStartNode, visualEndNode);
 
-        // Calcul des points visuels
-        var visual = ComputeVisualGeometry(p1, p2);
+        // 3) Points d’ancrage
+        var startAnchor = visualStartNode.GetAnchorPoint(startSide, _parentCanvas);
+        var endAnchor = visualEndNode.GetAnchorPoint(endSide, _parentCanvas);
 
-        _visibleLine.StartPoint = visual.LineStart;
-        _visibleLine.EndPoint = visual.LineEnd;
+        // Hit test = segment logique complet
+        _hitLine.StartPoint = startAnchor;
+        _hitLine.EndPoint = endAnchor;
+
+        // 4) Géométrie visuelle cohérente avec la sémantique
+        var geometry = ComputeVisualGeometry(startAnchor, endAnchor, endSide);
+
+        _visibleLine.StartPoint = geometry.LineStart;
+        _visibleLine.EndPoint = geometry.LineEnd;
 
         ApplyLineStyle();
-        ApplyArrowVisual(visual.ArrowTip, visual.ArrowDirection);
-        ApplyLabelVisual(visual.LineStart, visual.LineEnd);
+        ApplyArrowVisual(geometry.ArrowTip, geometry.ArrowDirectionVector);
+        ApplyLabelVisual(geometry.LineStart, geometry.LineEnd);
     }
 
     private void ApplyLineStyle()
@@ -246,42 +254,42 @@ public sealed class EdgeControl : Canvas
         }
     }
 
-    private void ApplyArrowVisual(Point arrowTip, EdgeDirection direction)
+    private void ApplyArrowVisual(Point arrowTip, Vector directionVector)
     {
+        var length = directionVector.Length;
+        if (length < 0.001)
+        {
+            _arrowHead.Points = new AvaloniaList<Point>();
+            return;
+        }
+
+        var ux = directionVector.X / length;
+        var uy = directionVector.Y / length;
+
+        var px = -uy;
+        var py = ux;
+
         var arrowLength = _styleKind == EdgeStyleKind.Thick ? 14 : 12;
         var arrowWidth = _styleKind == EdgeStyleKind.Thick ? 8 : 6;
 
-        // S12.B :
-        // - la flèche est TOUJOURS dessinée à l’extérieur, à droite du node concerné
-        // - pour garder le sens visible, on inverse la géométrie entre Forward et Reverse
-        AvaloniaList<Point> points;
+        var baseCenter = new Point(
+            arrowTip.X - ux * arrowLength,
+            arrowTip.Y - uy * arrowLength);
 
-        if (direction == EdgeDirection.Forward)
+        var leftPoint = new Point(
+            baseCenter.X + px * arrowWidth,
+            baseCenter.Y + py * arrowWidth);
+
+        var rightPoint = new Point(
+            baseCenter.X - px * arrowWidth,
+            baseCenter.Y - py * arrowWidth);
+
+        _arrowHead.Points = new AvaloniaList<Point>
         {
-            // pointe vers la droite
-            var baseCenter = new Point(arrowTip.X - arrowLength, arrowTip.Y);
-
-            points = new AvaloniaList<Point>
-            {
-                arrowTip,
-                new Point(baseCenter.X, baseCenter.Y - arrowWidth),
-                new Point(baseCenter.X, baseCenter.Y + arrowWidth)
-            };
-        }
-        else
-        {
-            // pointe vers la gauche, mais positionnée à droite du node source
-            var baseCenter = new Point(arrowTip.X + arrowLength, arrowTip.Y);
-
-            points = new AvaloniaList<Point>
-            {
-                arrowTip,
-                new Point(baseCenter.X, baseCenter.Y - arrowWidth),
-                new Point(baseCenter.X, baseCenter.Y + arrowWidth)
-            };
-        }
-
-        _arrowHead.Points = points;
+            arrowTip,
+            leftPoint,
+            rightPoint
+        };
     }
 
     private void ApplyLabelVisual(Point lineStart, Point lineEnd)
@@ -307,36 +315,75 @@ public sealed class EdgeControl : Canvas
         SetTop(_labelBorder, midY - size.Height / 2);
     }
 
-    private (Point LineStart, Point LineEnd, Point ArrowTip, EdgeDirection ArrowDirection)
-        ComputeVisualGeometry(Point anchorSource, Point anchorTarget)
+    private static (NodeAnchorSide StartSide, NodeAnchorSide EndSide)
+        ComputeAnchorSides(NodeControl visualStartNode, NodeControl visualEndNode)
     {
-        // S12.B :
-        // La ligne visible ne va pas jusqu’au port d’arrivée :
-        // elle s’arrête juste avant la flèche, qui est elle-même dessinée à droite du node.
+        var parent = visualStartNode.Parent as Visual ?? visualStartNode;
+        var startCenter = visualStartNode.GetCenter(parent);
+        var endCenter = visualEndNode.GetCenter(parent);
 
-        if (_direction == EdgeDirection.Forward)
+        var dx = endCenter.X - startCenter.X;
+        var dy = endCenter.Y - startCenter.Y;
+
+        if (Math.Abs(dx) >= Math.Abs(dy))
         {
-            var arrowTip = new Point(anchorTarget.X + ArrowTipOffset, anchorTarget.Y);
-            var lineEnd = new Point(arrowTip.X - 12.0, arrowTip.Y);
-
-            return (
-                LineStart: anchorSource,
-                LineEnd: lineEnd,
-                ArrowTip: arrowTip,
-                ArrowDirection: EdgeDirection.Forward
-            );
+            return dx >= 0
+                ? (NodeAnchorSide.Right, NodeAnchorSide.Left)
+                : (NodeAnchorSide.Left, NodeAnchorSide.Right);
         }
-        else
+
+        return dy >= 0
+            ? (NodeAnchorSide.Bottom, NodeAnchorSide.Top)
+            : (NodeAnchorSide.Top, NodeAnchorSide.Bottom);
+    }
+
+    private static (Point LineStart, Point LineEnd, Point ArrowTip, Vector ArrowDirectionVector)
+        ComputeVisualGeometry(Point startAnchor, Point endAnchor, NodeAnchorSide endSide)
+    {
+        var outwardNormal = GetSideNormal(endSide);
+
+        // Pointe placée légèrement à l’extérieur du node d’arrivée
+        var arrowTip = endAnchor + outwardNormal * ArrowTipOffset;
+
+        // IMPORTANT :
+        // la flèche doit pointer VERS le node d’arrivée,
+        // donc la direction visuelle est l’opposé de la normale sortante
+        var arrowDirection = -outwardNormal;
+
+        var arrowLength = 12.0;
+        var unit = Normalize(arrowDirection);
+
+        // La ligne visible s’arrête à la base de la flèche
+        var lineEnd = new Point(
+            arrowTip.X - unit.X * arrowLength,
+            arrowTip.Y - unit.Y * arrowLength);
+
+        return (
+            LineStart: startAnchor,
+            LineEnd: lineEnd,
+            ArrowTip: arrowTip,
+            ArrowDirectionVector: arrowDirection
+        );
+    }
+
+    private static Vector GetSideNormal(NodeAnchorSide side)
+    {
+        return side switch
         {
-            var arrowTip = new Point(anchorSource.X + ArrowTipOffset, anchorSource.Y);
-            var lineStart = new Point(arrowTip.X + 12.0, arrowTip.Y);
+            NodeAnchorSide.Left => new Vector(-1, 0),
+            NodeAnchorSide.Right => new Vector(1, 0),
+            NodeAnchorSide.Top => new Vector(0, -1),
+            NodeAnchorSide.Bottom => new Vector(0, 1),
+            _ => new Vector(1, 0)
+        };
+    }
 
-            return (
-                LineStart: lineStart,
-                LineEnd: anchorTarget,
-                ArrowTip: arrowTip,
-                ArrowDirection: EdgeDirection.Reverse
-            );
-        }
+    private static Vector Normalize(Vector v)
+    {
+        var len = v.Length;
+        if (len < 0.001)
+            return new Vector(1, 0);
+
+        return new Vector(v.X / len, v.Y / len);
     }
 }

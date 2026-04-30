@@ -8,6 +8,14 @@ using MermaidStudio.Domain.Nodes;
 
 namespace MermaidStudio.UI.Avalonia.Controls;
 
+public enum NodeAnchorSide
+{
+    Left,
+    Right,
+    Top,
+    Bottom
+}
+
 public partial class NodeControl : UserControl
 {
     private bool _dragging;
@@ -168,5 +176,27 @@ public partial class NodeControl : UserControl
 
         var rect = new Rect(topLeft.Value, Bounds.Size);
         return rect.Contains(pointRelativeTo);
+    }
+
+    public Point GetCenter(Visual relativeTo)
+    {
+        var centerLocal = new Point(Bounds.Width / 2, Bounds.Height / 2);
+        var translated = this.TranslatePoint(centerLocal, relativeTo);
+        return translated ?? default;
+    }
+
+    public Point GetAnchorPoint(NodeAnchorSide side, Visual relativeTo)
+    {
+        Point localPoint = side switch
+        {
+            NodeAnchorSide.Left => new Point(0, Bounds.Height / 2),
+            NodeAnchorSide.Right => new Point(Bounds.Width, Bounds.Height / 2),
+            NodeAnchorSide.Top => new Point(Bounds.Width / 2, 0),
+            NodeAnchorSide.Bottom => new Point(Bounds.Width / 2, Bounds.Height),
+            _ => new Point(Bounds.Width, Bounds.Height / 2)
+        };
+
+        var translated = this.TranslatePoint(localPoint, relativeTo);
+        return translated ?? default;
     }
 }
