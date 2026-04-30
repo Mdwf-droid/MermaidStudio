@@ -1,0 +1,17 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="MermaidStudio.UI.Avalonia.Controls.NodeControl"
+             x:CompileBindings="False"
+             Width="120"
+             Height="50">
+
+	<Border Background="#2D2D30"
+            BorderBrush="#6A6A6A"
+            BorderThickness="2"
+            CornerRadius="6">
+		<TextBlock Text="{Binding Label}"
+                   Foreground="White"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"/>
+	</Border>
+</UserControl>
