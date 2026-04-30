@@ -1,5 +1,4 @@
-﻿using Avalonia;
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Media;
 
@@ -10,6 +9,9 @@ public sealed class EdgeControl : Line
     private readonly NodeControl _source;
     private readonly NodeControl _target;
     private readonly Canvas _canvas;
+
+    public NodeControl SourceNode => _source;
+    public NodeControl TargetNode => _target;
 
     public EdgeControl(Canvas canvas, NodeControl source, NodeControl target)
     {
@@ -23,7 +25,6 @@ public sealed class EdgeControl : Line
 
         UpdateEndpoints();
 
-        // On recalcule quand les nodes se relayoutent/se déplacent
         _source.LayoutUpdated += OnNodeLayoutUpdated;
         _target.LayoutUpdated += OnNodeLayoutUpdated;
     }

@@ -2,27 +2,63 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="MermaidStudio.UI.Avalonia.Views.MainWindow"
         x:CompileBindings="False"
-        Width="1200"
+        Width="1400"
         Height="800"
         Title="MermaidStudio"
         Background="#1E1E1E">
 
-	<Grid RowDefinitions="Auto,*">
+	<Grid RowDefinitions="Auto,*"
+          ColumnDefinitions="*,380">
 
+		<!-- Barre haute -->
 		<Border Grid.Row="0"
+                Grid.ColumnSpan="2"
                 Background="#252526"
                 BorderBrush="#333333"
                 BorderThickness="0,0,0,1"
                 Padding="8">
-			<TextBlock Text="MermaidStudio — S5 Commit du lien"
-                       Foreground="White"/>
+			<DockPanel>
+				<TextBlock Text="MermaidStudio — S6.A Export Mermaid"
+                           Foreground="White"
+                           VerticalAlignment="Center"/>
+
+				<Button DockPanel.Dock="Right"
+                        Content="Export Mermaid"
+                        Margin="12,0,0,0"
+                        Click="OnExportMermaidClicked"/>
+			</DockPanel>
 		</Border>
 
+		<!-- Canvas éditeur -->
 		<Canvas x:Name="EditorCanvas"
                 Grid.Row="1"
+                Grid.Column="0"
                 Background="#00000000"
                 PointerPressed="OnCanvasPressed"
                 PointerMoved="OnCanvasMoved"
                 PointerReleased="OnCanvasReleased"/>
+
+		<!-- Panneau texte Mermaid -->
+		<Border Grid.Row="1"
+                Grid.Column="1"
+                Background="#1B1B1B"
+                BorderBrush="#333333"
+                BorderThickness="1,0,0,0"
+                Padding="8">
+			<Grid RowDefinitions="Auto,*">
+				<TextBlock Text="Mermaid output"
+                           Foreground="White"
+                           Margin="0,0,0,8"/>
+
+				<TextBox x:Name="MermaidOutputTextBox"
+                         Grid.Row="1"
+                         AcceptsReturn="True"
+                         IsReadOnly="True"
+                         TextWrapping="Wrap"
+                         FontFamily="Consolas"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
+			</Grid>
+		</Border>
 	</Grid>
 </Window>

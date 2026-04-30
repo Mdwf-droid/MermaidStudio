@@ -5,9 +5,9 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
-using Avalonia.VisualTree;
 using MermaidStudio.Domain.Nodes;
 using MermaidStudio.UI.Avalonia.Controls;
+using System.Text;
 
 namespace MermaidStudio.UI.Avalonia.Views;
 
@@ -86,8 +86,8 @@ public partial class MainWindow : Window
 
     private void OnCanvasReleased(object? sender, PointerReleasedEventArgs e)
     {
-        // En S5, le release du canvas ne fait rien de plus :
-        // le commit se fait via la fin de preview (PortPreviewEnded)
+        // S5 : le release du canvas ne fait rien de plus.
+        // Le commit se fait via la fin de preview (PortPreviewEnded).
     }
 
     private void OnNodePressed(object? sender, PointerPressedEventArgs e)
@@ -198,10 +198,9 @@ public partial class MainWindow : Window
         // Commit réel du lien si cible valide
         if (targetNode != null)
         {
-            // Évite un doublon exact source->target
             var exists = _edges.Any(edge =>
-                ReferenceEquals(GetEdgeSource(edge), _previewSource) &&
-                ReferenceEquals(GetEdgeTarget(edge), targetNode));
+                ReferenceEquals(edge.SourceNode, _previewSource) &&
+                ReferenceEquals(edge.TargetNode, targetNode));
 
             if (!exists)
             {
@@ -214,17 +213,48 @@ public partial class MainWindow : Window
         _previewSource = null;
     }
 
-    private static NodeControl? GetEdgeSource(EdgeControl edge)
+    // =============================
+    // S6.A — Export Mermaid flowchart
+    // =============================
+    private void OnExportMermaidClicked(object? sender, RoutedEventArgs e)
     {
-        var field = typeof(EdgeControl).GetField("_source",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        return field?.GetValue(edge) as NodeControl;
+        var textBox = this.FindControl<TextBox>("MermaidOutputTextBox");
+        textBox.Text = BuildFlowchartMermaid();
     }
 
-    private static NodeControl? GetEdgeTarget(EdgeControl edge)
+    private string BuildFlowchartMermaid()
     {
-        var field = typeof(EdgeControl).GetField("_target",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        return field?.GetValue(edge) as NodeControl;
+        var canvas = this.FindControl<Canvas>("EditorCanvas");
+
+        var nodes = canvas.Children
+            .OfType<NodeControl>()
+            .Select(n => n.DataContext as Node)
+            .Where(n => n != null)
+            .Cast<Node>()
+            .ToList();
+
+        var sb = new StringBuilder();
+        sb.AppendLine("flowchart LR");
+
+        foreach (var node in nodes)
+        {
+            sb.AppendLine($"    {node.Id}[\"{Escape(node.Label)}\"]");
+        }
+
+        foreach (var edge in _edges)
+        {
+            var sourceNode = edge.SourceNode.DataContext as Node;
+            var targetNode = edge.TargetNode.DataContext as Node;
+
+            if (sourceNode == null || targetNode == null)
+                continue;
+
+            sb.AppendLine($"    {sourceNode.Id} --> {targetNode.Id}");
+        }
+
+        return sb.ToString();
     }
+
+    private static string Escape(string value)
+        => value.Replace("\"", "\\\"");
 }
