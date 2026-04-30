@@ -17,13 +17,17 @@
                        VerticalAlignment="Center"/>
 		</Border>
 
-		<!-- Port droit visuel -->
+		<!-- Port droit actif -->
 		<Ellipse x:Name="RightPort"
                  Width="8"
                  Height="8"
                  Fill="#AAAAAA"
                  HorizontalAlignment="Right"
                  VerticalAlignment="Center"
-                 Margin="0,0,-4,0"/>
+                 Margin="0,0,-4,0"
+                 Cursor="Cross"
+                 PointerPressed="OnRightPortPressed"
+                 PointerMoved="OnRightPortMoved"
+                 PointerReleased="OnRightPortReleased"/>
 	</Grid>
 </UserControl>

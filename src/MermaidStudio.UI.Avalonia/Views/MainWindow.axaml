@@ -14,7 +14,7 @@
                 BorderBrush="#333333"
                 BorderThickness="0,0,0,1"
                 Padding="8">
-			<TextBlock Text="MermaidStudio — S4 Preview de lien"
+			<TextBlock Text="MermaidStudio — S5 Commit du lien"
                        Foreground="White"/>
 		</Border>
 

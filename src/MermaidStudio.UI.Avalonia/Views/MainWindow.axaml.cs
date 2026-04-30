@@ -17,6 +17,9 @@ public partial class MainWindow : Window
     private NodeControl? _previewSource;
     private Line? _previewLine;
 
+    // S5 : stock minimal des edges créés
+    private readonly List<EdgeControl> _edges = new();
+
     public MainWindow()
     {
         AvaloniaXamlLoader.Load(this);
@@ -33,44 +36,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        // S4 : Ctrl + clic sur le port droit d’un node = début de preview
-        if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
-        {
-            var pos = e.GetPosition(canvas);
-
-            if (canvas.InputHitTest(pos) is Visual visual)
-            {
-                var hitNode = visual.FindAncestorOfType<NodeControl>();
-                if (hitNode != null && hitNode.IsOverRightPort(pos, canvas))
-                {
-                    _previewSource = hitNode;
-
-                    var start = hitNode.GetRightPortCenter(canvas);
-
-                    _previewLine = new Line
-                    {
-                        StartPoint = start,
-                        EndPoint = start,
-                        Stroke = Brushes.Orange,
-                        StrokeThickness = 2,
-                        IsHitTestVisible = false
-                    };
-
-                    canvas.Children.Add(_previewLine);
-                    e.Handled = true;
-                    return;
-                }
-            }
-
-            // Ctrl sans port cible = pas de création de node
+        // Important : si un node/port a déjà géré l’événement, le canvas ne fait rien
+        if (e.Handled)
             return;
-        }
 
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
-            return;
-
-        // si un node a déjà pris l’événement (drag), le canvas ne crée rien
-        if (e.Handled)
             return;
 
         var posCanvas = e.GetPosition(canvas);
@@ -87,11 +57,17 @@ public partial class MainWindow : Window
             DataContext = nodeModel
         };
 
+        // S3 : sélection
         newNode.AddHandler(
             PointerPressedEvent,
             OnNodePressed,
             RoutingStrategies.Bubble,
             handledEventsToo: true);
+
+        // S4/S5 : preview / commit
+        newNode.PortPreviewStarted += OnPortPreviewStarted;
+        newNode.PortPreviewMoved += OnPortPreviewMoved;
+        newNode.PortPreviewEnded += OnPortPreviewEnded;
 
         Canvas.SetLeft(newNode, nodeModel.X);
         Canvas.SetTop(newNode, nodeModel.Y);
@@ -110,19 +86,13 @@ public partial class MainWindow : Window
 
     private void OnCanvasReleased(object? sender, PointerReleasedEventArgs e)
     {
-        if (_previewLine == null)
-            return;
-
-        var canvas = (Canvas)sender!;
-        canvas.Children.Remove(_previewLine);
-
-        _previewLine = null;
-        _previewSource = null;
+        // En S5, le release du canvas ne fait rien de plus :
+        // le commit se fait via la fin de preview (PortPreviewEnded)
     }
 
     private void OnNodePressed(object? sender, PointerPressedEventArgs e)
     {
-        // S3 : la sélection n’existe QUE avec Shift + clic
+        // S3 : sélection seulement avec Shift + clic
         if (!e.KeyModifiers.HasFlag(KeyModifiers.Shift))
             return;
 
@@ -150,5 +120,111 @@ public partial class MainWindow : Window
             _selectedNode.SetSelected(false);
             _selectedNode = null;
         }
+    }
+
+    // =============================
+    // S4/S5 — Preview + Commit
+    // =============================
+    private void OnPortPreviewStarted(NodeControl source, Point startInWindow)
+    {
+        _previewSource = source;
+
+        var canvas = this.FindControl<Canvas>("EditorCanvas");
+        var canvasOrigin = canvas.TranslatePoint(new Point(0, 0), this);
+
+        if (canvasOrigin == null)
+            return;
+
+        var start = new Point(
+            startInWindow.X - canvasOrigin.Value.X,
+            startInWindow.Y - canvasOrigin.Value.Y);
+
+        _previewLine = new Line
+        {
+            StartPoint = start,
+            EndPoint = start,
+            Stroke = Brushes.Orange,
+            StrokeThickness = 2,
+            IsHitTestVisible = false
+        };
+
+        canvas.Children.Add(_previewLine);
+    }
+
+    private void OnPortPreviewMoved(Point currentInWindow)
+    {
+        if (_previewLine == null)
+            return;
+
+        var canvas = this.FindControl<Canvas>("EditorCanvas");
+        var canvasOrigin = canvas.TranslatePoint(new Point(0, 0), this);
+
+        if (canvasOrigin == null)
+            return;
+
+        _previewLine.EndPoint = new Point(
+            currentInWindow.X - canvasOrigin.Value.X,
+            currentInWindow.Y - canvasOrigin.Value.Y);
+    }
+
+    private void OnPortPreviewEnded()
+    {
+        var canvas = this.FindControl<Canvas>("EditorCanvas");
+
+        if (_previewLine == null || _previewSource == null)
+            return;
+
+        // Position finale = extrémité de la preview dans le canvas
+        var releasePosInCanvas = _previewLine.EndPoint;
+
+        // Recherche d'une cible valide : un autre NodeControl sous cette position
+        NodeControl? targetNode = null;
+
+        foreach (var child in canvas.Children)
+        {
+            if (child is NodeControl node &&
+                node != _previewSource &&
+                node.IsPointInsideNode(releasePosInCanvas, canvas))
+            {
+                targetNode = node;
+                break;
+            }
+        }
+
+        // Cleanup de la preview d’abord
+        canvas.Children.Remove(_previewLine);
+        _previewLine = null;
+
+        // Commit réel du lien si cible valide
+        if (targetNode != null)
+        {
+            // Évite un doublon exact source->target
+            var exists = _edges.Any(edge =>
+                ReferenceEquals(GetEdgeSource(edge), _previewSource) &&
+                ReferenceEquals(GetEdgeTarget(edge), targetNode));
+
+            if (!exists)
+            {
+                var edge = new EdgeControl(canvas, _previewSource, targetNode);
+                _edges.Add(edge);
+                canvas.Children.Insert(0, edge);
+            }
+        }
+
+        _previewSource = null;
+    }
+
+    private static NodeControl? GetEdgeSource(EdgeControl edge)
+    {
+        var field = typeof(EdgeControl).GetField("_source",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        return field?.GetValue(edge) as NodeControl;
+    }
+
+    private static NodeControl? GetEdgeTarget(EdgeControl edge)
+    {
+        var field = typeof(EdgeControl).GetField("_target",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        return field?.GetValue(edge) as NodeControl;
     }
 }

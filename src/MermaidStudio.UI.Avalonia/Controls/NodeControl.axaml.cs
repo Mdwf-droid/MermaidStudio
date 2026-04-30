@@ -11,11 +11,17 @@ namespace MermaidStudio.UI.Avalonia.Controls;
 public partial class NodeControl : UserControl
 {
     private bool _dragging;
+    private bool _previewDragging;
     private Point _startMouse;
     private double _startLeft;
     private double _startTop;
     private Node? _node;
     private Border? _rootBorder;
+
+    // Preview / linking
+    public event Action<NodeControl, Point>? PortPreviewStarted;
+    public event Action<Point>? PortPreviewMoved;
+    public event Action? PortPreviewEnded;
 
     public NodeControl()
     {
@@ -48,16 +54,12 @@ public partial class NodeControl : UserControl
         if (_node == null)
             return;
 
-        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        // Si on est en train de faire une preview depuis le port, on n'active pas le drag node
+        if (_previewDragging)
             return;
 
-        // S4 : Ctrl + clic sur le port droit = ne PAS démarrer le drag node.
-        // On laisse le Canvas gérer la preview.
-        if (e.KeyModifiers.HasFlag(KeyModifiers.Control) &&
-            IsOverRightPortLocal(e.GetPosition(this)))
-        {
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
             return;
-        }
 
         _dragging = true;
         _startMouse = e.GetPosition(null);
@@ -76,21 +78,21 @@ public partial class NodeControl : UserControl
 
     private void OnPointerMoved(object? sender, PointerEventArgs e)
     {
-        if (!_dragging || _node == null)
-            return;
+        if (_dragging && _node != null)
+        {
+            var current = e.GetPosition(null);
+            var dx = current.X - _startMouse.X;
+            var dy = current.Y - _startMouse.Y;
 
-        var current = e.GetPosition(null);
-        var dx = current.X - _startMouse.X;
-        var dy = current.Y - _startMouse.Y;
+            var newLeft = _startLeft + dx;
+            var newTop = _startTop + dy;
 
-        var newLeft = _startLeft + dx;
-        var newTop = _startTop + dy;
+            Canvas.SetLeft(this, newLeft);
+            Canvas.SetTop(this, newTop);
 
-        Canvas.SetLeft(this, newLeft);
-        Canvas.SetTop(this, newTop);
-
-        _node.X = newLeft;
-        _node.Y = newTop;
+            _node.X = newLeft;
+            _node.Y = newTop;
+        }
     }
 
     private void OnPointerReleased(object? sender, PointerReleasedEventArgs e)
@@ -103,6 +105,41 @@ public partial class NodeControl : UserControl
         e.Handled = true;
     }
 
+    // =============================
+    // Preview / linking depuis le port droit
+    // =============================
+    private void OnRightPortPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.KeyModifiers.HasFlag(KeyModifiers.Control))
+            return;
+
+        _previewDragging = true;
+        PortPreviewStarted?.Invoke(this, e.GetPosition(null));
+        e.Handled = true;
+    }
+
+    private void OnRightPortMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_previewDragging)
+            return;
+
+        PortPreviewMoved?.Invoke(e.GetPosition(null));
+        e.Handled = true;
+    }
+
+    private void OnRightPortReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (!_previewDragging)
+            return;
+
+        _previewDragging = false;
+        PortPreviewEnded?.Invoke();
+        e.Handled = true;
+    }
+
+    // =============================
+    // Helpers géométriques
+    // =============================
     public bool IsOverRightPort(Point pointRelativeTo, Visual relativeTo)
     {
         var port = this.FindControl<Control>("RightPort");
@@ -121,14 +158,13 @@ public partial class NodeControl : UserControl
         return port.TranslatePoint(localCenter, relativeTo)!.Value;
     }
 
-    private bool IsOverRightPortLocal(Point pointOnThis)
+    public bool IsPointInsideNode(Point pointRelativeTo, Visual relativeTo)
     {
-        var port = this.FindControl<Control>("RightPort");
-        var topLeft = port.TranslatePoint(new Point(0, 0), this);
+        var topLeft = this.TranslatePoint(new Point(0, 0), relativeTo);
         if (topLeft == null)
             return false;
 
-        var rect = new Rect(topLeft.Value, port.Bounds.Size);
-        return rect.Contains(pointOnThis);
+        var rect = new Rect(topLeft.Value, Bounds.Size);
+        return rect.Contains(pointRelativeTo);
     }
 }
