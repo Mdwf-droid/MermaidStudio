@@ -5,7 +5,8 @@
         Width="1400"
         Height="800"
         Title="MermaidStudio"
-        Background="#1E1E1E">
+        Background="#1E1E1E"
+        KeyDown="OnWindowKeyDown">
 
 	<Grid RowDefinitions="Auto,*"
           ColumnDefinitions="*,380">
@@ -18,7 +19,7 @@
                 BorderThickness="0,0,0,1"
                 Padding="8">
 			<DockPanel>
-				<TextBlock Text="MermaidStudio — S7 Label editor"
+				<TextBlock Text="MermaidStudio — S8 Suppression"
                            Foreground="White"
                            VerticalAlignment="Center"/>
 

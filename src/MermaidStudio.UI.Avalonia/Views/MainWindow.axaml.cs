@@ -27,6 +27,9 @@ public partial class MainWindow : Window
 
     private void OnCanvasPressed(object? sender, PointerPressedEventArgs e)
     {
+        // Important pour recevoir Delete ensuite
+        Focus();
+
         var canvas = (Canvas)sender!;
 
         // S3 : Shift + clic sur le canvas = désélection uniquement
@@ -86,7 +89,7 @@ public partial class MainWindow : Window
 
     private void OnCanvasReleased(object? sender, PointerReleasedEventArgs e)
     {
-        // En S5/S6/S7, le release du canvas ne fait rien de plus :
+        // En S5/S6/S7/S8, le release du canvas ne fait rien de plus :
         // le commit se fait via la fin de preview (PortPreviewEnded).
     }
 
@@ -204,10 +207,8 @@ public partial class MainWindow : Window
         if (_previewLine == null || _previewSource == null)
             return;
 
-        // Position finale = extrémité de la preview dans le canvas
         var releasePosInCanvas = _previewLine.EndPoint;
 
-        // Recherche d'une cible valide : un autre NodeControl sous cette position
         NodeControl? targetNode = null;
 
         foreach (var child in canvas.Children)
@@ -221,11 +222,9 @@ public partial class MainWindow : Window
             }
         }
 
-        // Cleanup de la preview d’abord
         canvas.Children.Remove(_previewLine);
         _previewLine = null;
 
-        // Commit réel du lien si cible valide
         if (targetNode != null)
         {
             var exists = _edges.Any(edge =>
@@ -306,4 +305,44 @@ public partial class MainWindow : Window
 
     private static string Escape(string value)
         => value.Replace("\"", "\\\"");
+
+    // =============================
+    // S8 — Suppression propre
+    // =============================
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Delete && e.Key != Key.Back)
+            return;
+
+        DeleteSelectedNode();
+        e.Handled = true;
+    }
+
+    private void DeleteSelectedNode()
+    {
+        if (_selectedNode == null)
+            return;
+
+        var canvas = this.FindControl<Canvas>("EditorCanvas");
+        var nodeToDelete = _selectedNode;
+
+        // Supprime d'abord tous les edges liés au node, avec détachement propre
+        for (int i = _edges.Count - 1; i >= 0; i--)
+        {
+            var edge = _edges[i];
+            if (ReferenceEquals(edge.SourceNode, nodeToDelete) ||
+                ReferenceEquals(edge.TargetNode, nodeToDelete))
+            {
+                edge.Detach();
+                canvas.Children.Remove(edge);
+                _edges.RemoveAt(i);
+            }
+        }
+
+        // Supprime ensuite le node
+        canvas.Children.Remove(nodeToDelete);
+
+        // Nettoyage sélection + panneau
+        ClearSelection();
+    }
 }

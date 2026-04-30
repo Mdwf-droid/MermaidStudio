@@ -155,7 +155,9 @@ public partial class NodeControl : UserControl
     {
         var port = this.FindControl<Control>("RightPort");
         var localCenter = new Point(port.Bounds.Width / 2, port.Bounds.Height / 2);
-        return port.TranslatePoint(localCenter, relativeTo)!.Value;
+
+        var translated = port.TranslatePoint(localCenter, relativeTo);
+        return translated ?? default;
     }
 
     public bool IsPointInsideNode(Point pointRelativeTo, Visual relativeTo)
