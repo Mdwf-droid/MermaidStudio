@@ -18,24 +18,27 @@ public partial class MainWindow : Window
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
             return;
 
+        // Très important : si un node a déjà géré l’événement, le canvas ne fait rien
         if (e.Handled)
             return;
 
         var canvas = (Canvas)sender!;
         var pos = e.GetPosition(canvas);
 
-        var node = new NodeControl
+        var nodeModel = new Node
         {
-            DataContext = new Node
-            {
-                Label = "Node",
-                X = pos.X,
-                Y = pos.Y
-            }
+            Label = "Node",
+            X = pos.X,
+            Y = pos.Y
         };
 
-        Canvas.SetLeft(node, pos.X);
-        Canvas.SetTop(node, pos.Y);
+        var node = new NodeControl
+        {
+            DataContext = nodeModel
+        };
+
+        Canvas.SetLeft(node, nodeModel.X);
+        Canvas.SetTop(node, nodeModel.Y);
 
         canvas.Children.Add(node);
     }

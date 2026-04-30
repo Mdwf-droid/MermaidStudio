@@ -9,17 +9,15 @@
 
 	<Grid RowDefinitions="Auto,*">
 
-		<!-- Barre haute informative -->
 		<Border Grid.Row="0"
                 Background="#252526"
                 BorderBrush="#333333"
                 BorderThickness="0,0,0,1"
                 Padding="8">
-			<TextBlock Text="MermaidStudio — S1 Node statique"
+			<TextBlock Text="MermaidStudio — S2 Node déplaçable"
                        Foreground="White"/>
 		</Border>
 
-		<!-- Canvas -->
 		<Canvas x:Name="EditorCanvas"
                 Grid.Row="1"
                 Background="#00000000"
