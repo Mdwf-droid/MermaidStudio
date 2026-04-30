@@ -41,6 +41,14 @@ public partial class MainWindow : Window
         => this.FindControl<Button>("ApplyNodeLabelButton")
            ?? throw new InvalidOperationException("ApplyNodeLabelButton introuvable dans MainWindow.");
 
+    private ComboBox GetSelectedNodeStyleComboBox()
+        => this.FindControl<ComboBox>("SelectedNodeStyleComboBox")
+           ?? throw new InvalidOperationException("SelectedNodeStyleComboBox introuvable dans MainWindow.");
+
+    private Button GetApplyNodeStyleButton()
+        => this.FindControl<Button>("ApplyNodeStyleButton")
+           ?? throw new InvalidOperationException("ApplyNodeStyleButton introuvable dans MainWindow.");
+
     private TextBox GetSelectedEdgeLabelTextBox()
         => this.FindControl<TextBox>("SelectedEdgeLabelTextBox")
            ?? throw new InvalidOperationException("SelectedEdgeLabelTextBox introuvable dans MainWindow.");
@@ -75,7 +83,6 @@ public partial class MainWindow : Window
 
         var canvas = (Canvas)sender!;
 
-        // Shift + clic canvas = désélection
         if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
         {
             ClearSelection();
@@ -94,7 +101,8 @@ public partial class MainWindow : Window
         {
             Label = "Node",
             X = posCanvas.X,
-            Y = posCanvas.Y
+            Y = posCanvas.Y,
+            VisualStyle = NodeVisualStyle.Rectangle
         };
 
         var newNode = new NodeControl
@@ -203,7 +211,9 @@ public partial class MainWindow : Window
         var canvas = GetEditorCanvas();
 
         var nodeTextBox = GetSelectedNodeLabelTextBox();
-        var nodeButton = GetApplyNodeLabelButton();
+        var nodeLabelButton = GetApplyNodeLabelButton();
+        var nodeStyleCombo = GetSelectedNodeStyleComboBox();
+        var nodeStyleButton = GetApplyNodeStyleButton();
 
         var edgeTextBox = GetSelectedEdgeLabelTextBox();
         var edgeLabelButton = GetApplyEdgeLabelButton();
@@ -216,14 +226,29 @@ public partial class MainWindow : Window
             canvas.Children.Contains(_selectedNode))
         {
             nodeTextBox.IsEnabled = true;
-            nodeButton.IsEnabled = true;
+            nodeLabelButton.IsEnabled = true;
             nodeTextBox.Text = selectedNodeModel.Label;
+
+            nodeStyleCombo.IsEnabled = true;
+            nodeStyleButton.IsEnabled = true;
+            nodeStyleCombo.SelectedIndex = selectedNodeModel.VisualStyle switch
+            {
+                NodeVisualStyle.Rectangle => 0,
+                NodeVisualStyle.Rounded => 1,
+                NodeVisualStyle.Decision => 2,
+                NodeVisualStyle.Circle => 3,
+                _ => 0
+            };
         }
         else
         {
             nodeTextBox.IsEnabled = false;
-            nodeButton.IsEnabled = false;
+            nodeLabelButton.IsEnabled = false;
             nodeTextBox.Text = string.Empty;
+
+            nodeStyleCombo.IsEnabled = false;
+            nodeStyleButton.IsEnabled = false;
+            nodeStyleCombo.SelectedIndex = 0;
 
             if (_selectedNode != null && !canvas.Children.Contains(_selectedNode))
                 _selectedNode = null;
@@ -286,6 +311,24 @@ public partial class MainWindow : Window
             return;
 
         _history.Execute(new UpdateNodeLabelCommand(selectedModel, selectedModel.Label, newLabel));
+        RefreshInspector();
+    }
+
+    private void OnApplyNodeStyleClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_selectedNode?.DataContext is not Node selectedModel)
+            return;
+
+        var combo = GetSelectedNodeStyleComboBox();
+
+        selectedModel.VisualStyle = combo.SelectedIndex switch
+        {
+            1 => NodeVisualStyle.Rounded,
+            2 => NodeVisualStyle.Decision,
+            3 => NodeVisualStyle.Circle,
+            _ => NodeVisualStyle.Rectangle
+        };
+
         RefreshInspector();
     }
 
@@ -447,7 +490,7 @@ public partial class MainWindow : Window
 
         foreach (var node in nodes)
         {
-            sb.AppendLine($"    {node.Id.Value}[\"{Escape(node.Label)}\"]");
+            sb.AppendLine($"    {FormatNode(node)}");
         }
 
         foreach (var edge in _edges
@@ -478,6 +521,20 @@ public partial class MainWindow : Window
         }
 
         return sb.ToString();
+    }
+
+    private string FormatNode(Node node)
+    {
+        var id = node.Id.Value;
+        var label = Escape(node.Label);
+
+        return node.VisualStyle switch
+        {
+            NodeVisualStyle.Rounded => $"{id}(\"{label}\")",
+            NodeVisualStyle.Decision => $"{id}{{\"{label}\"}}",
+            NodeVisualStyle.Circle => $"{id}((\"{label}\"))",
+            _ => $"{id}[\"{label}\"]"
+        };
     }
 
     private Node? GetExportSourceNode(EdgeControl edge)
@@ -534,7 +591,6 @@ public partial class MainWindow : Window
 
         if (e.Key == Key.Delete || e.Key == Key.Back)
         {
-            // S11 : priorité à l’edge si edge sélectionné
             if (_selectedEdge != null)
             {
                 DeleteSelectedEdge();

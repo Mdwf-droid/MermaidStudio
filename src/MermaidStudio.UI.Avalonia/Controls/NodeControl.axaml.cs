@@ -1,10 +1,12 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using MermaidStudio.Domain.Nodes;
+using System.ComponentModel;
 
 namespace MermaidStudio.UI.Avalonia.Controls;
 
@@ -23,8 +25,14 @@ public partial class NodeControl : UserControl
     private Point _startMouse;
     private double _startLeft;
     private double _startTop;
+
     private Node? _node;
+
     private Border? _rootBorder;
+    private Polygon? _decisionShape;
+    private Ellipse? _circleShape;
+
+    private bool _isSelected;
 
     // Preview / linking
     public event Action<NodeControl, Point>? PortPreviewStarted;
@@ -36,10 +44,20 @@ public partial class NodeControl : UserControl
         AvaloniaXamlLoader.Load(this);
 
         _rootBorder = this.FindControl<Border>("RootBorder");
+        _decisionShape = this.FindControl<Polygon>("DecisionShape");
+        _circleShape = this.FindControl<Ellipse>("CircleShape");
 
         DataContextChanged += (_, _) =>
         {
+            if (_node != null)
+                _node.PropertyChanged -= OnNodePropertyChanged;
+
             _node = DataContext as Node;
+
+            if (_node != null)
+                _node.PropertyChanged += OnNodePropertyChanged;
+
+            UpdateVisualStyle();
         };
 
         AddHandler(PointerPressedEvent, OnPointerPressed, RoutingStrategies.Bubble);
@@ -47,14 +65,69 @@ public partial class NodeControl : UserControl
         AddHandler(PointerReleasedEvent, OnPointerReleased, RoutingStrategies.Bubble);
     }
 
+    private void OnNodePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(Node.VisualStyle))
+        {
+            UpdateVisualStyle();
+        }
+    }
+
     public void SetSelected(bool selected)
     {
-        if (_rootBorder == null)
+        _isSelected = selected;
+        ApplySelectionVisual();
+    }
+
+    private void UpdateVisualStyle()
+    {
+        if (_rootBorder == null || _decisionShape == null || _circleShape == null)
             return;
 
-        _rootBorder.BorderBrush = selected
+        var style = _node?.VisualStyle ?? NodeVisualStyle.Rectangle;
+
+        _rootBorder.IsVisible = false;
+        _decisionShape.IsVisible = false;
+        _circleShape.IsVisible = false;
+
+        switch (style)
+        {
+            case NodeVisualStyle.Rectangle:
+                _rootBorder.IsVisible = true;
+                _rootBorder.CornerRadius = new CornerRadius(0);
+                break;
+
+            case NodeVisualStyle.Rounded:
+                _rootBorder.IsVisible = true;
+                _rootBorder.CornerRadius = new CornerRadius(12);
+                break;
+
+            case NodeVisualStyle.Decision:
+                _decisionShape.IsVisible = true;
+                break;
+
+            case NodeVisualStyle.Circle:
+                _circleShape.IsVisible = true;
+                break;
+        }
+
+        ApplySelectionVisual();
+    }
+
+    private void ApplySelectionVisual()
+    {
+        IBrush stroke = _isSelected
             ? Brushes.DodgerBlue
             : new SolidColorBrush(Color.Parse("#6A6A6A"));
+
+        if (_rootBorder != null)
+            _rootBorder.BorderBrush = stroke;
+
+        if (_decisionShape != null)
+            _decisionShape.Stroke = stroke;
+
+        if (_circleShape != null)
+            _circleShape.Stroke = stroke;
     }
 
     private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -62,7 +135,6 @@ public partial class NodeControl : UserControl
         if (_node == null)
             return;
 
-        // Si on est en train de faire une preview depuis le port, on n'active pas le drag node
         if (_previewDragging)
             return;
 

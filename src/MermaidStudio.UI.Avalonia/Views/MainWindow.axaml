@@ -19,7 +19,7 @@
                 BorderThickness="0,0,0,1"
                 Padding="8">
 			<DockPanel>
-				<TextBlock Text="MermaidStudio — S12 Edge styles &amp; direction"
+				<TextBlock Text="MermaidStudio — S14 Node styles"
                            Foreground="White"
                            VerticalAlignment="Center"/>
 
@@ -62,9 +62,9 @@
                 BorderBrush="#333333"
                 BorderThickness="1,0,0,0"
                 Padding="8">
-			<Grid RowDefinitions="Auto,Auto,Auto,16,Auto,Auto,Auto,Auto,Auto,16,Auto,*">
+			<Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,16,Auto,Auto,Auto,Auto,Auto,Auto,16,Auto,*">
 
-				<!-- S7 : édition du label du node -->
+				<!-- S7 / S14 : édition du node -->
 				<TextBlock Text="Selected node label"
                            Foreground="White"/>
 
@@ -80,26 +80,43 @@
                         IsEnabled="False"
                         Click="OnApplyNodeLabelClicked"/>
 
-				<!-- S10 : édition du label de l’edge -->
-				<TextBlock Grid.Row="4"
+				<ComboBox x:Name="SelectedNodeStyleComboBox"
+                          Grid.Row="3"
+                          Margin="0,8,0,0"
+                          IsEnabled="False"
+                          SelectedIndex="0">
+					<ComboBoxItem Content="Rectangle" />
+					<ComboBoxItem Content="Rounded" />
+					<ComboBoxItem Content="Decision" />
+					<ComboBoxItem Content="Circle" />
+				</ComboBox>
+
+				<Button x:Name="ApplyNodeStyleButton"
+                        Grid.Row="4"
+                        Margin="0,8,0,0"
+                        Content="Apply Node Style"
+                        IsEnabled="False"
+                        Click="OnApplyNodeStyleClicked"/>
+
+				<!-- S10 / S12 : édition edge -->
+				<TextBlock Grid.Row="6"
                            Text="Selected edge label"
                            Foreground="White"/>
 
 				<TextBox x:Name="SelectedEdgeLabelTextBox"
-                         Grid.Row="5"
+                         Grid.Row="7"
                          Margin="0,8,0,0"
                          IsEnabled="False"/>
 
 				<Button x:Name="ApplyEdgeLabelButton"
-                        Grid.Row="6"
+                        Grid.Row="8"
                         Margin="0,8,0,0"
                         Content="Apply Edge Label"
                         IsEnabled="False"
                         Click="OnApplyEdgeLabelClicked"/>
 
-				<!-- S12 : style + direction de l’edge -->
 				<ComboBox x:Name="SelectedEdgeStyleComboBox"
-                          Grid.Row="7"
+                          Grid.Row="9"
                           Margin="0,8,0,0"
                           IsEnabled="False"
                           SelectedIndex="0">
@@ -109,7 +126,7 @@
 				</ComboBox>
 
 				<ComboBox x:Name="SelectedEdgeDirectionComboBox"
-                          Grid.Row="8"
+                          Grid.Row="10"
                           Margin="0,8,0,0"
                           IsEnabled="False"
                           SelectedIndex="0">
@@ -118,19 +135,19 @@
 				</ComboBox>
 
 				<Button x:Name="ApplyEdgeStyleButton"
-                        Grid.Row="9"
+                        Grid.Row="11"
                         Margin="0,8,0,0"
                         Content="Apply Edge Style"
                         IsEnabled="False"
                         Click="OnApplyEdgeStyleClicked"/>
 
-				<!-- S6.A/S6.B : panneau Mermaid -->
-				<TextBlock Grid.Row="10"
+				<!-- Mermaid output -->
+				<TextBlock Grid.Row="13"
                            Text="Mermaid output"
                            Foreground="White"/>
 
 				<TextBox x:Name="MermaidOutputTextBox"
-                         Grid.Row="11"
+                         Grid.Row="14"
                          Margin="0,8,0,0"
                          AcceptsReturn="True"
                          IsReadOnly="True"
