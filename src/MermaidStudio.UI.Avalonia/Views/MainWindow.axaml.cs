@@ -86,7 +86,7 @@ public partial class MainWindow : Window
 
     private void OnCanvasReleased(object? sender, PointerReleasedEventArgs e)
     {
-        // En S5/S6, le release du canvas ne fait rien de plus :
+        // En S5/S6/S7, le release du canvas ne fait rien de plus :
         // le commit se fait via la fin de preview (PortPreviewEnded).
     }
 
@@ -111,6 +111,16 @@ public partial class MainWindow : Window
 
         _selectedNode = node;
         _selectedNode.SetSelected(true);
+
+        if (_selectedNode.DataContext is Node selectedModel)
+        {
+            var textBox = this.FindControl<TextBox>("SelectedNodeLabelTextBox");
+            var button = this.FindControl<Button>("ApplyNodeLabelButton");
+
+            textBox.IsEnabled = true;
+            button.IsEnabled = true;
+            textBox.Text = selectedModel.Label;
+        }
     }
 
     private void ClearSelection()
@@ -120,6 +130,26 @@ public partial class MainWindow : Window
             _selectedNode.SetSelected(false);
             _selectedNode = null;
         }
+
+        var textBox = this.FindControl<TextBox>("SelectedNodeLabelTextBox");
+        var button = this.FindControl<Button>("ApplyNodeLabelButton");
+
+        textBox.IsEnabled = false;
+        button.IsEnabled = false;
+        textBox.Text = string.Empty;
+    }
+
+    private void OnApplyNodeLabelClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_selectedNode?.DataContext is not Node selectedModel)
+            return;
+
+        var textBox = this.FindControl<TextBox>("SelectedNodeLabelTextBox");
+        var newLabel = textBox.Text?.Trim();
+
+        selectedModel.Label = string.IsNullOrWhiteSpace(newLabel)
+            ? "Node"
+            : newLabel;
     }
 
     // =============================
@@ -214,7 +244,7 @@ public partial class MainWindow : Window
     }
 
     // =============================
-    // S6.B — Export Mermaid flowchart amélioré
+    // S6.A / S6.B — Export Mermaid flowchart
     // =============================
     private void OnExportMermaidClicked(object? sender, RoutedEventArgs e)
     {

@@ -18,7 +18,7 @@
                 BorderThickness="0,0,0,1"
                 Padding="8">
 			<DockPanel>
-				<TextBlock Text="MermaidStudio — S6.B Export Mermaid amélioré"
+				<TextBlock Text="MermaidStudio — S7 Label editor"
                            Foreground="White"
                            VerticalAlignment="Center"/>
 
@@ -54,20 +54,39 @@
                 PointerMoved="OnCanvasMoved"
                 PointerReleased="OnCanvasReleased"/>
 
-		<!-- Panneau texte Mermaid -->
+		<!-- Panneau droit -->
 		<Border Grid.Row="1"
                 Grid.Column="1"
                 Background="#1B1B1B"
                 BorderBrush="#333333"
                 BorderThickness="1,0,0,0"
                 Padding="8">
-			<Grid RowDefinitions="Auto,*">
-				<TextBlock Text="Mermaid output"
-                           Foreground="White"
-                           Margin="0,0,0,8"/>
+			<Grid RowDefinitions="Auto,Auto,Auto,16,Auto,*">
+
+				<!-- S7 : édition du label -->
+				<TextBlock Text="Selected node label"
+                           Foreground="White"/>
+
+				<TextBox x:Name="SelectedNodeLabelTextBox"
+                         Grid.Row="1"
+                         Margin="0,8,0,0"
+                         IsEnabled="False"/>
+
+				<Button x:Name="ApplyNodeLabelButton"
+                        Grid.Row="2"
+                        Margin="0,8,0,0"
+                        Content="Apply Label"
+                        IsEnabled="False"
+                        Click="OnApplyNodeLabelClicked"/>
+
+				<!-- S6.A/S6.B : panneau Mermaid -->
+				<TextBlock Grid.Row="4"
+                           Text="Mermaid output"
+                           Foreground="White"/>
 
 				<TextBox x:Name="MermaidOutputTextBox"
-                         Grid.Row="1"
+                         Grid.Row="5"
+                         Margin="0,8,0,0"
                          AcceptsReturn="True"
                          IsReadOnly="True"
                          TextWrapping="Wrap"
