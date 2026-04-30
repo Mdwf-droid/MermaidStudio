@@ -86,8 +86,8 @@ public partial class MainWindow : Window
 
     private void OnCanvasReleased(object? sender, PointerReleasedEventArgs e)
     {
-        // S5 : le release du canvas ne fait rien de plus.
-        // Le commit se fait via la fin de preview (PortPreviewEnded).
+        // En S5/S6, le release du canvas ne fait rien de plus :
+        // le commit se fait via la fin de preview (PortPreviewEnded).
     }
 
     private void OnNodePressed(object? sender, PointerPressedEventArgs e)
@@ -214,7 +214,7 @@ public partial class MainWindow : Window
     }
 
     // =============================
-    // S6.A — Export Mermaid flowchart
+    // S6.B — Export Mermaid flowchart amélioré
     // =============================
     private void OnExportMermaidClicked(object? sender, RoutedEventArgs e)
     {
@@ -231,17 +231,22 @@ public partial class MainWindow : Window
             .Select(n => n.DataContext as Node)
             .Where(n => n != null)
             .Cast<Node>()
+            .OrderBy(n => n.Id.Value, StringComparer.Ordinal)
             .ToList();
 
+        var direction = GetSelectedFlowDirection();
+
         var sb = new StringBuilder();
-        sb.AppendLine("flowchart LR");
+        sb.AppendLine($"flowchart {direction}");
 
         foreach (var node in nodes)
         {
-            sb.AppendLine($"    {node.Id}[\"{Escape(node.Label)}\"]");
+            sb.AppendLine($"    {node.Id.Value}[\"{Escape(node.Label)}\"]");
         }
 
-        foreach (var edge in _edges)
+        foreach (var edge in _edges
+                     .OrderBy(e => (e.SourceNode.DataContext as Node)?.Id.Value, StringComparer.Ordinal)
+                     .ThenBy(e => (e.TargetNode.DataContext as Node)?.Id.Value, StringComparer.Ordinal))
         {
             var sourceNode = edge.SourceNode.DataContext as Node;
             var targetNode = edge.TargetNode.DataContext as Node;
@@ -249,10 +254,24 @@ public partial class MainWindow : Window
             if (sourceNode == null || targetNode == null)
                 continue;
 
-            sb.AppendLine($"    {sourceNode.Id} --> {targetNode.Id}");
+            sb.AppendLine($"    {sourceNode.Id.Value} --> {targetNode.Id.Value}");
         }
 
         return sb.ToString();
+    }
+
+    private string GetSelectedFlowDirection()
+    {
+        var combo = this.FindControl<ComboBox>("FlowDirectionComboBox");
+
+        if (combo.SelectedItem is ComboBoxItem item &&
+            item.Content is string value &&
+            (value == "LR" || value == "TB" || value == "RL" || value == "BT"))
+        {
+            return value;
+        }
+
+        return "LR";
     }
 
     private static string Escape(string value)

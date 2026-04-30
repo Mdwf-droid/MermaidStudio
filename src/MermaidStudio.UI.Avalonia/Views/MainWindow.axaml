@@ -18,14 +18,30 @@
                 BorderThickness="0,0,0,1"
                 Padding="8">
 			<DockPanel>
-				<TextBlock Text="MermaidStudio — S6.A Export Mermaid"
+				<TextBlock Text="MermaidStudio — S6.B Export Mermaid amélioré"
                            Foreground="White"
                            VerticalAlignment="Center"/>
 
-				<Button DockPanel.Dock="Right"
-                        Content="Export Mermaid"
-                        Margin="12,0,0,0"
-                        Click="OnExportMermaidClicked"/>
+				<StackPanel DockPanel.Dock="Right"
+                            Orientation="Horizontal"
+                            Spacing="8">
+
+					<TextBlock Text="Direction:"
+                               Foreground="White"
+                               VerticalAlignment="Center"/>
+
+					<ComboBox x:Name="FlowDirectionComboBox"
+                              Width="90"
+                              SelectedIndex="0">
+						<ComboBoxItem Content="LR" />
+						<ComboBoxItem Content="TB" />
+						<ComboBoxItem Content="RL" />
+						<ComboBoxItem Content="BT" />
+					</ComboBox>
+
+					<Button Content="Export Mermaid"
+                            Click="OnExportMermaidClicked"/>
+				</StackPanel>
 			</DockPanel>
 		</Border>
 
