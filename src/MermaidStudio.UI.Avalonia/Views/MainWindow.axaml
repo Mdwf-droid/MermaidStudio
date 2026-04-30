@@ -19,7 +19,7 @@
                 BorderThickness="0,0,0,1"
                 Padding="8">
 			<DockPanel>
-				<TextBlock Text="MermaidStudio — S9.A Undo / Redo"
+				<TextBlock Text="MermaidStudio — S10 Edge labels"
                            Foreground="White"
                            VerticalAlignment="Center"/>
 
@@ -62,9 +62,9 @@
                 BorderBrush="#333333"
                 BorderThickness="1,0,0,0"
                 Padding="8">
-			<Grid RowDefinitions="Auto,Auto,Auto,16,Auto,*">
+			<Grid RowDefinitions="Auto,Auto,Auto,16,Auto,Auto,Auto,16,Auto,*">
 
-				<!-- S7 : édition du label -->
+				<!-- S7 : édition du label du node -->
 				<TextBlock Text="Selected node label"
                            Foreground="White"/>
 
@@ -80,13 +80,30 @@
                         IsEnabled="False"
                         Click="OnApplyNodeLabelClicked"/>
 
-				<!-- S6.A/S6.B : panneau Mermaid -->
+				<!-- S10 : édition du label de l’edge -->
 				<TextBlock Grid.Row="4"
+                           Text="Selected edge label"
+                           Foreground="White"/>
+
+				<TextBox x:Name="SelectedEdgeLabelTextBox"
+                         Grid.Row="5"
+                         Margin="0,8,0,0"
+                         IsEnabled="False"/>
+
+				<Button x:Name="ApplyEdgeLabelButton"
+                        Grid.Row="6"
+                        Margin="0,8,0,0"
+                        Content="Apply Edge Label"
+                        IsEnabled="False"
+                        Click="OnApplyEdgeLabelClicked"/>
+
+				<!-- S6.A/S6.B : panneau Mermaid -->
+				<TextBlock Grid.Row="8"
                            Text="Mermaid output"
                            Foreground="White"/>
 
 				<TextBox x:Name="MermaidOutputTextBox"
-                         Grid.Row="5"
+                         Grid.Row="9"
                          Margin="0,8,0,0"
                          AcceptsReturn="True"
                          IsReadOnly="True"

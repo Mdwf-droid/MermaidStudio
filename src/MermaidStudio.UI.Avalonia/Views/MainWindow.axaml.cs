@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using MermaidStudio.Domain.Nodes;
 using MermaidStudio.UI.Avalonia.Controls;
 using MermaidStudio.UI.Avalonia.Editing;
@@ -17,10 +18,11 @@ public partial class MainWindow : Window
     private readonly CommandHistory _history = new();
 
     private NodeControl? _selectedNode;
+    private EdgeControl? _selectedEdge;
+
     private NodeControl? _previewSource;
     private Line? _previewLine;
 
-    // S5 : stock minimal des edges créés
     private readonly List<EdgeControl> _edges = new();
 
     public MainWindow()
@@ -40,6 +42,14 @@ public partial class MainWindow : Window
         => this.FindControl<Button>("ApplyNodeLabelButton")
            ?? throw new InvalidOperationException("ApplyNodeLabelButton introuvable dans MainWindow.");
 
+    private TextBox GetSelectedEdgeLabelTextBox()
+        => this.FindControl<TextBox>("SelectedEdgeLabelTextBox")
+           ?? throw new InvalidOperationException("SelectedEdgeLabelTextBox introuvable dans MainWindow.");
+
+    private Button GetApplyEdgeLabelButton()
+        => this.FindControl<Button>("ApplyEdgeLabelButton")
+           ?? throw new InvalidOperationException("ApplyEdgeLabelButton introuvable dans MainWindow.");
+
     private TextBox GetMermaidOutputTextBox()
         => this.FindControl<TextBox>("MermaidOutputTextBox")
            ?? throw new InvalidOperationException("MermaidOutputTextBox introuvable dans MainWindow.");
@@ -50,19 +60,17 @@ public partial class MainWindow : Window
 
     private void OnCanvasPressed(object? sender, PointerPressedEventArgs e)
     {
-        // Important pour recevoir Delete / Ctrl+Z / Ctrl+Y
         Focus();
 
         var canvas = (Canvas)sender!;
 
-        // S3 : Shift + clic sur le canvas = désélection uniquement
+        // Shift + clic canvas = désélection
         if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
         {
             ClearSelection();
             return;
         }
 
-        // Important : si un node/port a déjà géré l’événement, le canvas ne fait rien
         if (e.Handled)
             return;
 
@@ -83,14 +91,12 @@ public partial class MainWindow : Window
             DataContext = nodeModel
         };
 
-        // S3 : sélection
         newNode.AddHandler(
             PointerPressedEvent,
             OnNodePressed,
             RoutingStrategies.Bubble,
             handledEventsToo: true);
 
-        // S4/S5 : preview / commit
         newNode.PortPreviewStarted += OnPortPreviewStarted;
         newNode.PortPreviewMoved += OnPortPreviewMoved;
         newNode.PortPreviewEnded += OnPortPreviewEnded;
@@ -113,13 +119,11 @@ public partial class MainWindow : Window
 
     private void OnCanvasReleased(object? sender, PointerReleasedEventArgs e)
     {
-        // En S5/S6/S7/S8/S9.A, le release du canvas ne fait rien de plus :
-        // le commit se fait via la fin de preview (PortPreviewEnded).
+        // Rien à faire ici : le commit du lien est géré par la fin de preview.
     }
 
     private void OnNodePressed(object? sender, PointerPressedEventArgs e)
     {
-        // S3 : sélection seulement avec Shift + clic
         if (!e.KeyModifiers.HasFlag(KeyModifiers.Shift))
             return;
 
@@ -127,6 +131,17 @@ public partial class MainWindow : Window
 
         var node = (NodeControl)sender!;
         SetSelection(node);
+    }
+
+    private void OnEdgePressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+            return;
+
+        e.Handled = true;
+
+        var edge = (EdgeControl)sender!;
+        SetSelection(edge);
     }
 
     private void SetSelection(NodeControl node)
@@ -142,6 +157,19 @@ public partial class MainWindow : Window
         RefreshInspector();
     }
 
+    private void SetSelection(EdgeControl edge)
+    {
+        if (_selectedEdge == edge)
+            return;
+
+        ClearSelection();
+
+        _selectedEdge = edge;
+        _selectedEdge.SetSelected(true);
+
+        RefreshInspector();
+    }
+
     private void ClearSelection()
     {
         if (_selectedNode != null)
@@ -150,31 +178,59 @@ public partial class MainWindow : Window
             _selectedNode = null;
         }
 
+        if (_selectedEdge != null)
+        {
+            _selectedEdge.SetSelected(false);
+            _selectedEdge = null;
+        }
+
         RefreshInspector();
     }
 
     private void RefreshInspector()
     {
         var canvas = GetEditorCanvas();
-        var textBox = GetSelectedNodeLabelTextBox();
-        var button = GetApplyNodeLabelButton();
 
-        if (_selectedNode?.DataContext is Node selectedModel &&
+        var nodeTextBox = GetSelectedNodeLabelTextBox();
+        var nodeButton = GetApplyNodeLabelButton();
+
+        var edgeTextBox = GetSelectedEdgeLabelTextBox();
+        var edgeButton = GetApplyEdgeLabelButton();
+
+        if (_selectedNode?.DataContext is Node selectedNodeModel &&
             canvas.Children.Contains(_selectedNode))
         {
-            textBox.IsEnabled = true;
-            button.IsEnabled = true;
-            textBox.Text = selectedModel.Label;
+            nodeTextBox.IsEnabled = true;
+            nodeButton.IsEnabled = true;
+            nodeTextBox.Text = selectedNodeModel.Label;
         }
         else
         {
-            textBox.IsEnabled = false;
-            button.IsEnabled = false;
-            textBox.Text = string.Empty;
+            nodeTextBox.IsEnabled = false;
+            nodeButton.IsEnabled = false;
+            nodeTextBox.Text = string.Empty;
 
             if (_selectedNode != null && !canvas.Children.Contains(_selectedNode))
             {
                 _selectedNode = null;
+            }
+        }
+
+        if (_selectedEdge != null && canvas.Children.Contains(_selectedEdge))
+        {
+            edgeTextBox.IsEnabled = true;
+            edgeButton.IsEnabled = true;
+            edgeTextBox.Text = _selectedEdge.Label;
+        }
+        else
+        {
+            edgeTextBox.IsEnabled = false;
+            edgeButton.IsEnabled = false;
+            edgeTextBox.Text = string.Empty;
+
+            if (_selectedEdge != null && !canvas.Children.Contains(_selectedEdge))
+            {
+                _selectedEdge = null;
             }
         }
     }
@@ -196,8 +252,20 @@ public partial class MainWindow : Window
         RefreshInspector();
     }
 
+    private void OnApplyEdgeLabelClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_selectedEdge == null)
+            return;
+
+        var textBox = GetSelectedEdgeLabelTextBox();
+        var newLabel = textBox.Text?.Trim() ?? string.Empty;
+
+        _selectedEdge.Label = newLabel;
+        RefreshInspector();
+    }
+
     // =============================
-    // S4/S5 — Preview + Commit
+    // Preview + commit du lien
     // =============================
     private void OnPortPreviewStarted(NodeControl source, Point startInWindow)
     {
@@ -275,6 +343,13 @@ public partial class MainWindow : Window
             if (!exists)
             {
                 var edge = new EdgeControl(canvas, _previewSource, targetNode);
+
+                edge.AddHandler(
+                    PointerPressedEvent,
+                    OnEdgePressed,
+                    RoutingStrategies.Bubble,
+                    handledEventsToo: true);
+
                 _history.Execute(new CreateEdgeCommand(canvas, _edges, edge));
             }
         }
@@ -284,7 +359,7 @@ public partial class MainWindow : Window
     }
 
     // =============================
-    // S6.A / S6.B — Export Mermaid flowchart
+    // Export Mermaid flowchart
     // =============================
     private void OnExportMermaidClicked(object? sender, RoutedEventArgs e)
     {
@@ -324,7 +399,14 @@ public partial class MainWindow : Window
             if (sourceNode == null || targetNode == null)
                 continue;
 
-            sb.AppendLine($"    {sourceNode.Id.Value} --> {targetNode.Id.Value}");
+            if (string.IsNullOrWhiteSpace(edge.Label))
+            {
+                sb.AppendLine($"    {sourceNode.Id.Value} --> {targetNode.Id.Value}");
+            }
+            else
+            {
+                sb.AppendLine($"    {sourceNode.Id.Value} -->|{Escape(edge.Label)}| {targetNode.Id.Value}");
+            }
         }
 
         return sb.ToString();
@@ -348,11 +430,10 @@ public partial class MainWindow : Window
         => value.Replace("\"", "\\\"");
 
     // =============================
-    // S8/S9.A — Suppression propre + Undo/Redo
+    // Suppression + Undo/Redo
     // =============================
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
-        // Undo / Redo
         if (e.Key == Key.Z && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             _history.Undo();
@@ -369,7 +450,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Delete selected node
+        // S10 n'ajoute toujours pas de suppression d'edge seul
         if (e.Key == Key.Delete || e.Key == Key.Back)
         {
             DeleteSelectedNode();
@@ -385,7 +466,6 @@ public partial class MainWindow : Window
         var canvas = GetEditorCanvas();
         var nodeToDelete = _selectedNode;
 
-        // Nettoyage sélection visuelle/panneau avant exécution de la commande
         ClearSelection();
 
         _history.Execute(new DeleteNodeCommand(canvas, nodeToDelete, _edges));
