@@ -5,14 +5,25 @@
              Width="120"
              Height="50">
 
-	<Border x:Name="RootBorder"
-            Background="#2D2D30"
-            BorderBrush="#6A6A6A"
-            BorderThickness="2"
-            CornerRadius="6">
-		<TextBlock Text="{Binding Label}"
-                   Foreground="White"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"/>
-	</Border>
+	<Grid>
+		<Border x:Name="RootBorder"
+                Background="#2D2D30"
+                BorderBrush="#6A6A6A"
+                BorderThickness="2"
+                CornerRadius="6">
+			<TextBlock Text="{Binding Label}"
+                       Foreground="White"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"/>
+		</Border>
+
+		<!-- Port droit visuel -->
+		<Ellipse x:Name="RightPort"
+                 Width="8"
+                 Height="8"
+                 Fill="#AAAAAA"
+                 HorizontalAlignment="Right"
+                 VerticalAlignment="Center"
+                 Margin="0,0,-4,0"/>
+	</Grid>
 </UserControl>

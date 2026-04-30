@@ -14,13 +14,15 @@
                 BorderBrush="#333333"
                 BorderThickness="0,0,0,1"
                 Padding="8">
-			<TextBlock Text="MermaidStudio — S2 Node déplaçable"
+			<TextBlock Text="MermaidStudio — S4 Preview de lien"
                        Foreground="White"/>
 		</Border>
 
 		<Canvas x:Name="EditorCanvas"
                 Grid.Row="1"
                 Background="#00000000"
-                PointerPressed="OnCanvasPressed"/>
+                PointerPressed="OnCanvasPressed"
+                PointerMoved="OnCanvasMoved"
+                PointerReleased="OnCanvasReleased"/>
 	</Grid>
 </Window>

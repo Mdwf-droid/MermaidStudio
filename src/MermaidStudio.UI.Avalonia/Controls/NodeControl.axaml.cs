@@ -51,6 +51,14 @@ public partial class NodeControl : UserControl
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
             return;
 
+        // S4 : Ctrl + clic sur le port droit = ne PAS démarrer le drag node.
+        // On laisse le Canvas gérer la preview.
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control) &&
+            IsOverRightPortLocal(e.GetPosition(this)))
+        {
+            return;
+        }
+
         _dragging = true;
         _startMouse = e.GetPosition(null);
         _startLeft = Canvas.GetLeft(this);
@@ -93,5 +101,34 @@ public partial class NodeControl : UserControl
         _dragging = false;
         e.Pointer.Capture(null);
         e.Handled = true;
+    }
+
+    public bool IsOverRightPort(Point pointRelativeTo, Visual relativeTo)
+    {
+        var port = this.FindControl<Control>("RightPort");
+        var topLeft = port.TranslatePoint(new Point(0, 0), relativeTo);
+        if (topLeft == null)
+            return false;
+
+        var rect = new Rect(topLeft.Value, port.Bounds.Size);
+        return rect.Contains(pointRelativeTo);
+    }
+
+    public Point GetRightPortCenter(Visual relativeTo)
+    {
+        var port = this.FindControl<Control>("RightPort");
+        var localCenter = new Point(port.Bounds.Width / 2, port.Bounds.Height / 2);
+        return port.TranslatePoint(localCenter, relativeTo)!.Value;
+    }
+
+    private bool IsOverRightPortLocal(Point pointOnThis)
+    {
+        var port = this.FindControl<Control>("RightPort");
+        var topLeft = port.TranslatePoint(new Point(0, 0), this);
+        if (topLeft == null)
+            return false;
+
+        var rect = new Rect(topLeft.Value, port.Bounds.Size);
+        return rect.Contains(pointOnThis);
     }
 }
