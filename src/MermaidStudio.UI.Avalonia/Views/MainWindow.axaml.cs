@@ -7,12 +7,15 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using MermaidStudio.Domain.Nodes;
 using MermaidStudio.UI.Avalonia.Controls;
+using MermaidStudio.UI.Avalonia.Editing;
 using System.Text;
 
 namespace MermaidStudio.UI.Avalonia.Views;
 
 public partial class MainWindow : Window
 {
+    private readonly CommandHistory _history = new();
+
     private NodeControl? _selectedNode;
     private NodeControl? _previewSource;
     private Line? _previewLine;
@@ -25,9 +28,29 @@ public partial class MainWindow : Window
         AvaloniaXamlLoader.Load(this);
     }
 
+    private Canvas GetEditorCanvas()
+        => this.FindControl<Canvas>("EditorCanvas")
+           ?? throw new InvalidOperationException("EditorCanvas introuvable dans MainWindow.");
+
+    private TextBox GetSelectedNodeLabelTextBox()
+        => this.FindControl<TextBox>("SelectedNodeLabelTextBox")
+           ?? throw new InvalidOperationException("SelectedNodeLabelTextBox introuvable dans MainWindow.");
+
+    private Button GetApplyNodeLabelButton()
+        => this.FindControl<Button>("ApplyNodeLabelButton")
+           ?? throw new InvalidOperationException("ApplyNodeLabelButton introuvable dans MainWindow.");
+
+    private TextBox GetMermaidOutputTextBox()
+        => this.FindControl<TextBox>("MermaidOutputTextBox")
+           ?? throw new InvalidOperationException("MermaidOutputTextBox introuvable dans MainWindow.");
+
+    private ComboBox GetFlowDirectionComboBox()
+        => this.FindControl<ComboBox>("FlowDirectionComboBox")
+           ?? throw new InvalidOperationException("FlowDirectionComboBox introuvable dans MainWindow.");
+
     private void OnCanvasPressed(object? sender, PointerPressedEventArgs e)
     {
-        // Important pour recevoir Delete ensuite
+        // Important pour recevoir Delete / Ctrl+Z / Ctrl+Y
         Focus();
 
         var canvas = (Canvas)sender!;
@@ -75,7 +98,8 @@ public partial class MainWindow : Window
         Canvas.SetLeft(newNode, nodeModel.X);
         Canvas.SetTop(newNode, nodeModel.Y);
 
-        canvas.Children.Add(newNode);
+        _history.Execute(new CreateNodeCommand(canvas, newNode));
+        RefreshInspector();
     }
 
     private void OnCanvasMoved(object? sender, PointerEventArgs e)
@@ -89,7 +113,7 @@ public partial class MainWindow : Window
 
     private void OnCanvasReleased(object? sender, PointerReleasedEventArgs e)
     {
-        // En S5/S6/S7/S8, le release du canvas ne fait rien de plus :
+        // En S5/S6/S7/S8/S9.A, le release du canvas ne fait rien de plus :
         // le commit se fait via la fin de preview (PortPreviewEnded).
     }
 
@@ -115,15 +139,7 @@ public partial class MainWindow : Window
         _selectedNode = node;
         _selectedNode.SetSelected(true);
 
-        if (_selectedNode.DataContext is Node selectedModel)
-        {
-            var textBox = this.FindControl<TextBox>("SelectedNodeLabelTextBox");
-            var button = this.FindControl<Button>("ApplyNodeLabelButton");
-
-            textBox.IsEnabled = true;
-            button.IsEnabled = true;
-            textBox.Text = selectedModel.Label;
-        }
+        RefreshInspector();
     }
 
     private void ClearSelection()
@@ -134,12 +150,33 @@ public partial class MainWindow : Window
             _selectedNode = null;
         }
 
-        var textBox = this.FindControl<TextBox>("SelectedNodeLabelTextBox");
-        var button = this.FindControl<Button>("ApplyNodeLabelButton");
+        RefreshInspector();
+    }
 
-        textBox.IsEnabled = false;
-        button.IsEnabled = false;
-        textBox.Text = string.Empty;
+    private void RefreshInspector()
+    {
+        var canvas = GetEditorCanvas();
+        var textBox = GetSelectedNodeLabelTextBox();
+        var button = GetApplyNodeLabelButton();
+
+        if (_selectedNode?.DataContext is Node selectedModel &&
+            canvas.Children.Contains(_selectedNode))
+        {
+            textBox.IsEnabled = true;
+            button.IsEnabled = true;
+            textBox.Text = selectedModel.Label;
+        }
+        else
+        {
+            textBox.IsEnabled = false;
+            button.IsEnabled = false;
+            textBox.Text = string.Empty;
+
+            if (_selectedNode != null && !canvas.Children.Contains(_selectedNode))
+            {
+                _selectedNode = null;
+            }
+        }
     }
 
     private void OnApplyNodeLabelClicked(object? sender, RoutedEventArgs e)
@@ -147,12 +184,16 @@ public partial class MainWindow : Window
         if (_selectedNode?.DataContext is not Node selectedModel)
             return;
 
-        var textBox = this.FindControl<TextBox>("SelectedNodeLabelTextBox");
-        var newLabel = textBox.Text?.Trim();
-
-        selectedModel.Label = string.IsNullOrWhiteSpace(newLabel)
+        var textBox = GetSelectedNodeLabelTextBox();
+        var newLabel = string.IsNullOrWhiteSpace(textBox.Text?.Trim())
             ? "Node"
-            : newLabel;
+            : textBox.Text!.Trim();
+
+        if (selectedModel.Label == newLabel)
+            return;
+
+        _history.Execute(new UpdateNodeLabelCommand(selectedModel, selectedModel.Label, newLabel));
+        RefreshInspector();
     }
 
     // =============================
@@ -162,7 +203,7 @@ public partial class MainWindow : Window
     {
         _previewSource = source;
 
-        var canvas = this.FindControl<Canvas>("EditorCanvas");
+        var canvas = GetEditorCanvas();
         var canvasOrigin = canvas.TranslatePoint(new Point(0, 0), this);
 
         if (canvasOrigin == null)
@@ -189,7 +230,7 @@ public partial class MainWindow : Window
         if (_previewLine == null)
             return;
 
-        var canvas = this.FindControl<Canvas>("EditorCanvas");
+        var canvas = GetEditorCanvas();
         var canvasOrigin = canvas.TranslatePoint(new Point(0, 0), this);
 
         if (canvasOrigin == null)
@@ -202,7 +243,7 @@ public partial class MainWindow : Window
 
     private void OnPortPreviewEnded()
     {
-        var canvas = this.FindControl<Canvas>("EditorCanvas");
+        var canvas = GetEditorCanvas();
 
         if (_previewLine == null || _previewSource == null)
             return;
@@ -234,12 +275,12 @@ public partial class MainWindow : Window
             if (!exists)
             {
                 var edge = new EdgeControl(canvas, _previewSource, targetNode);
-                _edges.Add(edge);
-                canvas.Children.Insert(0, edge);
+                _history.Execute(new CreateEdgeCommand(canvas, _edges, edge));
             }
         }
 
         _previewSource = null;
+        RefreshInspector();
     }
 
     // =============================
@@ -247,13 +288,13 @@ public partial class MainWindow : Window
     // =============================
     private void OnExportMermaidClicked(object? sender, RoutedEventArgs e)
     {
-        var textBox = this.FindControl<TextBox>("MermaidOutputTextBox");
+        var textBox = GetMermaidOutputTextBox();
         textBox.Text = BuildFlowchartMermaid();
     }
 
     private string BuildFlowchartMermaid()
     {
-        var canvas = this.FindControl<Canvas>("EditorCanvas");
+        var canvas = GetEditorCanvas();
 
         var nodes = canvas.Children
             .OfType<NodeControl>()
@@ -291,7 +332,7 @@ public partial class MainWindow : Window
 
     private string GetSelectedFlowDirection()
     {
-        var combo = this.FindControl<ComboBox>("FlowDirectionComboBox");
+        var combo = GetFlowDirectionComboBox();
 
         if (combo.SelectedItem is ComboBoxItem item &&
             item.Content is string value &&
@@ -307,15 +348,33 @@ public partial class MainWindow : Window
         => value.Replace("\"", "\\\"");
 
     // =============================
-    // S8 — Suppression propre
+    // S8/S9.A — Suppression propre + Undo/Redo
     // =============================
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Delete && e.Key != Key.Back)
+        // Undo / Redo
+        if (e.Key == Key.Z && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            _history.Undo();
+            RefreshInspector();
+            e.Handled = true;
             return;
+        }
 
-        DeleteSelectedNode();
-        e.Handled = true;
+        if (e.Key == Key.Y && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            _history.Redo();
+            RefreshInspector();
+            e.Handled = true;
+            return;
+        }
+
+        // Delete selected node
+        if (e.Key == Key.Delete || e.Key == Key.Back)
+        {
+            DeleteSelectedNode();
+            e.Handled = true;
+        }
     }
 
     private void DeleteSelectedNode()
@@ -323,26 +382,13 @@ public partial class MainWindow : Window
         if (_selectedNode == null)
             return;
 
-        var canvas = this.FindControl<Canvas>("EditorCanvas");
+        var canvas = GetEditorCanvas();
         var nodeToDelete = _selectedNode;
 
-        // Supprime d'abord tous les edges liés au node, avec détachement propre
-        for (int i = _edges.Count - 1; i >= 0; i--)
-        {
-            var edge = _edges[i];
-            if (ReferenceEquals(edge.SourceNode, nodeToDelete) ||
-                ReferenceEquals(edge.TargetNode, nodeToDelete))
-            {
-                edge.Detach();
-                canvas.Children.Remove(edge);
-                _edges.RemoveAt(i);
-            }
-        }
-
-        // Supprime ensuite le node
-        canvas.Children.Remove(nodeToDelete);
-
-        // Nettoyage sélection + panneau
+        // Nettoyage sélection visuelle/panneau avant exécution de la commande
         ClearSelection();
+
+        _history.Execute(new DeleteNodeCommand(canvas, nodeToDelete, _edges));
+        RefreshInspector();
     }
 }

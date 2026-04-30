@@ -24,10 +24,23 @@ public sealed class EdgeControl : Line
         StrokeThickness = 2;
         IsHitTestVisible = false;
 
-        UpdateEndpoints();
+        Attach();
+    }
+
+    public void Attach()
+    {
+        if (!_detached)
+        {
+            // Initial attach (ctor) : on ne veut pas dupliquer les handlers
+            _source.LayoutUpdated -= OnNodeLayoutUpdated;
+            _target.LayoutUpdated -= OnNodeLayoutUpdated;
+        }
 
         _source.LayoutUpdated += OnNodeLayoutUpdated;
         _target.LayoutUpdated += OnNodeLayoutUpdated;
+        _detached = false;
+
+        UpdateEndpoints();
     }
 
     public void Detach()

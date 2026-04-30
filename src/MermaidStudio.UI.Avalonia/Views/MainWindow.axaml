@@ -19,7 +19,7 @@
                 BorderThickness="0,0,0,1"
                 Padding="8">
 			<DockPanel>
-				<TextBlock Text="MermaidStudio — S8 Suppression"
+				<TextBlock Text="MermaidStudio — S9.A Undo / Redo"
                            Foreground="White"
                            VerticalAlignment="Center"/>
 
