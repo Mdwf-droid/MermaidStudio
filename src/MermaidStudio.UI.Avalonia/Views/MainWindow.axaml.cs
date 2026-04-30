@@ -5,7 +5,6 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
-using Avalonia.VisualTree;
 using MermaidStudio.Domain.Nodes;
 using MermaidStudio.UI.Avalonia.Controls;
 using MermaidStudio.UI.Avalonia.Editing;
@@ -71,6 +70,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Si un node/edge/port a déjà géré l’événement, le canvas ne fait rien
         if (e.Handled)
             return;
 
@@ -91,12 +91,14 @@ public partial class MainWindow : Window
             DataContext = nodeModel
         };
 
+        // Sélection node
         newNode.AddHandler(
             PointerPressedEvent,
             OnNodePressed,
             RoutingStrategies.Bubble,
             handledEventsToo: true);
 
+        // Preview / commit edge
         newNode.PortPreviewStarted += OnPortPreviewStarted;
         newNode.PortPreviewMoved += OnPortPreviewMoved;
         newNode.PortPreviewEnded += OnPortPreviewEnded;
@@ -119,7 +121,7 @@ public partial class MainWindow : Window
 
     private void OnCanvasReleased(object? sender, PointerReleasedEventArgs e)
     {
-        // Rien à faire ici : le commit du lien est géré par la fin de preview.
+        // Rien à faire ici : le commit du lien est géré par la fin de preview
     }
 
     private void OnNodePressed(object? sender, PointerPressedEventArgs e)
@@ -197,6 +199,7 @@ public partial class MainWindow : Window
         var edgeTextBox = GetSelectedEdgeLabelTextBox();
         var edgeButton = GetApplyEdgeLabelButton();
 
+        // Node sélectionné
         if (_selectedNode?.DataContext is Node selectedNodeModel &&
             canvas.Children.Contains(_selectedNode))
         {
@@ -211,11 +214,10 @@ public partial class MainWindow : Window
             nodeTextBox.Text = string.Empty;
 
             if (_selectedNode != null && !canvas.Children.Contains(_selectedNode))
-            {
                 _selectedNode = null;
-            }
         }
 
+        // Edge sélectionné
         if (_selectedEdge != null && canvas.Children.Contains(_selectedEdge))
         {
             edgeTextBox.IsEnabled = true;
@@ -229,9 +231,7 @@ public partial class MainWindow : Window
             edgeTextBox.Text = string.Empty;
 
             if (_selectedEdge != null && !canvas.Children.Contains(_selectedEdge))
-            {
                 _selectedEdge = null;
-            }
         }
     }
 
@@ -400,13 +400,9 @@ public partial class MainWindow : Window
                 continue;
 
             if (string.IsNullOrWhiteSpace(edge.Label))
-            {
                 sb.AppendLine($"    {sourceNode.Id.Value} --> {targetNode.Id.Value}");
-            }
             else
-            {
                 sb.AppendLine($"    {sourceNode.Id.Value} -->|{Escape(edge.Label)}| {targetNode.Id.Value}");
-            }
         }
 
         return sb.ToString();
@@ -450,9 +446,16 @@ public partial class MainWindow : Window
             return;
         }
 
-        // S10 n'ajoute toujours pas de suppression d'edge seul
         if (e.Key == Key.Delete || e.Key == Key.Back)
         {
+            // S11 : priorité à l’edge si edge sélectionné
+            if (_selectedEdge != null)
+            {
+                DeleteSelectedEdge();
+                e.Handled = true;
+                return;
+            }
+
             DeleteSelectedNode();
             e.Handled = true;
         }
@@ -469,6 +472,20 @@ public partial class MainWindow : Window
         ClearSelection();
 
         _history.Execute(new DeleteNodeCommand(canvas, nodeToDelete, _edges));
+        RefreshInspector();
+    }
+
+    private void DeleteSelectedEdge()
+    {
+        if (_selectedEdge == null)
+            return;
+
+        var canvas = GetEditorCanvas();
+        var edgeToDelete = _selectedEdge;
+
+        ClearSelection();
+
+        _history.Execute(new DeleteEdgeCommand(canvas, _edges, edgeToDelete));
         RefreshInspector();
     }
 }
