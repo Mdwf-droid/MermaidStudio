@@ -1,10 +1,11 @@
-﻿using Avalonia;
+﻿using System.ComponentModel;
+using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Media;
 using MermaidStudio.Domain.Nodes;
-using System.ComponentModel;
+using PathShape = Avalonia.Controls.Shapes.Path;
 
 namespace MermaidStudio.UI.Avalonia.Controls;
 
@@ -21,14 +22,22 @@ public enum EdgeDirection
     Reverse
 }
 
+public enum DiagramFlowDirection
+{
+    LR,
+    RL,
+    TB,
+    BT
+}
+
 public sealed class EdgeControl : Canvas
 {
     private readonly NodeControl _source;
     private readonly NodeControl _target;
     private readonly Canvas _parentCanvas;
 
-    private readonly Line _hitLine;
-    private readonly Line _visibleLine;
+    private readonly PathShape _hitPath;
+    private readonly PathShape _visiblePath;
     private readonly Polygon _arrowHead;
     private readonly Border _labelBorder;
     private readonly TextBlock _labelText;
@@ -39,7 +48,6 @@ public sealed class EdgeControl : Canvas
     private bool _detached;
     private bool _selected;
 
-    // Flèche légèrement dégagée du node d’arrivée
     private const double ArrowTipOffset = 10.0;
 
     public NodeControl SourceNode => _source;
@@ -79,6 +87,17 @@ public sealed class EdgeControl : Canvas
         }
     }
 
+    private DiagramFlowDirection _diagramDirection = DiagramFlowDirection.LR;
+    public DiagramFlowDirection DiagramDirection
+    {
+        get => _diagramDirection;
+        set
+        {
+            _diagramDirection = value;
+            UpdateVisual();
+        }
+    }
+
     public EdgeControl(Canvas parentCanvas, NodeControl source, NodeControl target)
     {
         _parentCanvas = parentCanvas;
@@ -92,19 +111,20 @@ public sealed class EdgeControl : Canvas
         Height = Math.Max(1, _parentCanvas.Bounds.Height);
         ClipToBounds = false;
 
-        // Ligne invisible mais cliquable
-        _hitLine = new Line
+        // Path invisible mais cliquable
+        _hitPath = new PathShape
         {
             Stroke = Brushes.Transparent,
             StrokeThickness = 12,
             IsHitTestVisible = true
         };
 
-        // Ligne visible
-        _visibleLine = new Line
+        // Path visible Bézier
+        _visiblePath = new PathShape
         {
             Stroke = Brushes.White,
             StrokeThickness = 2,
+            Fill = null,
             IsHitTestVisible = false
         };
 
@@ -137,8 +157,8 @@ public sealed class EdgeControl : Canvas
             Child = _labelText
         };
 
-        Children.Add(_hitLine);
-        Children.Add(_visibleLine);
+        Children.Add(_hitPath);
+        Children.Add(_visiblePath);
         Children.Add(_arrowHead);
         Children.Add(_labelBorder);
 
@@ -192,9 +212,7 @@ public sealed class EdgeControl : Canvas
             return;
 
         if (e.PropertyName == nameof(Node.X) || e.PropertyName == nameof(Node.Y))
-        {
             UpdateVisual();
-        }
     }
 
     private void UpdateVisual()
@@ -206,50 +224,46 @@ public sealed class EdgeControl : Canvas
         var visualStartNode = _direction == EdgeDirection.Forward ? _source : _target;
         var visualEndNode = _direction == EdgeDirection.Forward ? _target : _source;
 
-        // 2) Ancrage intelligent basé sur le sens effectif
+        // 2) Ancrage intelligent (S13) basé sur le sens effectif
         var (startSide, endSide) = ComputeAnchorSides(visualStartNode, visualEndNode);
 
         // 3) Points d’ancrage
         var startAnchor = visualStartNode.GetAnchorPoint(startSide, _parentCanvas);
         var endAnchor = visualEndNode.GetAnchorPoint(endSide, _parentCanvas);
 
-        // Hit test = segment logique complet
-        _hitLine.StartPoint = startAnchor;
-        _hitLine.EndPoint = endAnchor;
+        // 4) Géométrie visuelle Bézier
+        var geometry = ComputeBezierGeometry(startAnchor, endAnchor, endSide, _diagramDirection);
 
-        // 4) Géométrie visuelle cohérente avec la sémantique
-        var geometry = ComputeVisualGeometry(startAnchor, endAnchor, endSide);
+        _hitPath.Data = geometry.PathGeometry;
+        _visiblePath.Data = geometry.PathGeometry;
 
-        _visibleLine.StartPoint = geometry.LineStart;
-        _visibleLine.EndPoint = geometry.LineEnd;
-
-        ApplyLineStyle();
+        ApplyPathStyle();
         ApplyArrowVisual(geometry.ArrowTip, geometry.ArrowDirectionVector);
-        ApplyLabelVisual(geometry.LineStart, geometry.LineEnd);
+        ApplyLabelVisual(geometry.LabelPoint);
     }
 
-    private void ApplyLineStyle()
+    private void ApplyPathStyle()
     {
         var stroke = _selected ? Brushes.DodgerBlue : Brushes.White;
-        _visibleLine.Stroke = stroke;
+        _visiblePath.Stroke = stroke;
         _arrowHead.Fill = stroke;
         _arrowHead.Stroke = stroke;
 
         switch (_styleKind)
         {
             case EdgeStyleKind.Default:
-                _visibleLine.StrokeThickness = 2;
-                _visibleLine.StrokeDashArray = null;
+                _visiblePath.StrokeThickness = 2;
+                _visiblePath.StrokeDashArray = null;
                 break;
 
             case EdgeStyleKind.Dashed:
-                _visibleLine.StrokeThickness = 2;
-                _visibleLine.StrokeDashArray = new AvaloniaList<double> { 6, 4 };
+                _visiblePath.StrokeThickness = 2;
+                _visiblePath.StrokeDashArray = new AvaloniaList<double> { 6, 4 };
                 break;
 
             case EdgeStyleKind.Thick:
-                _visibleLine.StrokeThickness = 4;
-                _visibleLine.StrokeDashArray = null;
+                _visiblePath.StrokeThickness = 4;
+                _visiblePath.StrokeDashArray = null;
                 break;
         }
     }
@@ -292,7 +306,7 @@ public sealed class EdgeControl : Canvas
         };
     }
 
-    private void ApplyLabelVisual(Point lineStart, Point lineEnd)
+    private void ApplyLabelVisual(Point labelPoint)
     {
         if (string.IsNullOrWhiteSpace(_label))
         {
@@ -305,22 +319,18 @@ public sealed class EdgeControl : Canvas
             ? Brushes.DodgerBlue
             : new SolidColorBrush(Color.Parse("#555555"));
 
-        var midX = (lineStart.X + lineEnd.X) / 2;
-        var midY = (lineStart.Y + lineEnd.Y) / 2;
-
         _labelBorder.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = _labelBorder.DesiredSize;
 
-        SetLeft(_labelBorder, midX - size.Width / 2);
-        SetTop(_labelBorder, midY - size.Height / 2);
+        SetLeft(_labelBorder, labelPoint.X - size.Width / 2);
+        SetTop(_labelBorder, labelPoint.Y - size.Height / 2);
     }
 
     private static (NodeAnchorSide StartSide, NodeAnchorSide EndSide)
         ComputeAnchorSides(NodeControl visualStartNode, NodeControl visualEndNode)
     {
-        var parent = visualStartNode.Parent as Visual ?? visualStartNode;
-        var startCenter = visualStartNode.GetCenter(parent);
-        var endCenter = visualEndNode.GetCenter(parent);
+        var startCenter = visualStartNode.GetCenter(visualStartNode.Parent as Visual ?? visualStartNode);
+        var endCenter = visualEndNode.GetCenter(visualEndNode.Parent as Visual ?? visualEndNode);
 
         var dx = endCenter.X - startCenter.X;
         var dy = endCenter.Y - startCenter.Y;
@@ -337,33 +347,75 @@ public sealed class EdgeControl : Canvas
             : (NodeAnchorSide.Top, NodeAnchorSide.Bottom);
     }
 
-    private static (Point LineStart, Point LineEnd, Point ArrowTip, Vector ArrowDirectionVector)
-        ComputeVisualGeometry(Point startAnchor, Point endAnchor, NodeAnchorSide endSide)
+    private static (PathGeometry PathGeometry, Point ArrowTip, Vector ArrowDirectionVector, Point LabelPoint)
+        ComputeBezierGeometry(Point startAnchor, Point endAnchor, NodeAnchorSide endSide, DiagramFlowDirection diagramDirection)
     {
         var outwardNormal = GetSideNormal(endSide);
 
-        // Pointe placée légèrement à l’extérieur du node d’arrivée
+        // Pointe légèrement à l’extérieur du node d’arrivée
         var arrowTip = endAnchor + outwardNormal * ArrowTipOffset;
 
-        // IMPORTANT :
-        // la flèche doit pointer VERS le node d’arrivée,
-        // donc la direction visuelle est l’opposé de la normale sortante
+        // La flèche doit pointer vers le node d’arrivée
         var arrowDirection = -outwardNormal;
+        var arrowDirUnit = Normalize(arrowDirection);
 
         var arrowLength = 12.0;
-        var unit = Normalize(arrowDirection);
+        var pathEnd = new Point(
+            arrowTip.X - arrowDirUnit.X * arrowLength,
+            arrowTip.Y - arrowDirUnit.Y * arrowLength);
 
-        // La ligne visible s’arrête à la base de la flèche
-        var lineEnd = new Point(
-            arrowTip.X - unit.X * arrowLength,
-            arrowTip.Y - unit.Y * arrowLength);
+        // Contrôles Bézier selon la direction globale Mermaid
+        var dx = pathEnd.X - startAnchor.X;
+        var dy = pathEnd.Y - startAnchor.Y;
 
-        return (
-            LineStart: startAnchor,
-            LineEnd: lineEnd,
-            ArrowTip: arrowTip,
-            ArrowDirectionVector: arrowDirection
-        );
+        var horizontalDominant =
+            diagramDirection == DiagramFlowDirection.LR ||
+            diagramDirection == DiagramFlowDirection.RL;
+
+        Point c1;
+        Point c2;
+
+        if (horizontalDominant)
+        {
+            var handle = Math.Max(Math.Abs(dx) * 0.5, 40.0);
+            var sign = dx >= 0 ? 1.0 : -1.0;
+
+            c1 = new Point(startAnchor.X + handle * sign, startAnchor.Y);
+
+            c2 = new Point(
+                pathEnd.X - arrowDirUnit.X * Math.Max(24.0, handle * 0.35),
+                pathEnd.Y - arrowDirUnit.Y * Math.Max(24.0, handle * 0.35));
+        }
+        else
+        {
+            var handle = Math.Max(Math.Abs(dy) * 0.5, 40.0);
+            var sign = dy >= 0 ? 1.0 : -1.0;
+
+            c1 = new Point(startAnchor.X, startAnchor.Y + handle * sign);
+
+            c2 = new Point(
+                pathEnd.X - arrowDirUnit.X * Math.Max(24.0, handle * 0.35),
+                pathEnd.Y - arrowDirUnit.Y * Math.Max(24.0, handle * 0.35));
+        }
+
+        var figure = new PathFigure
+        {
+            StartPoint = startAnchor,
+            IsClosed = false
+        };
+        figure.Segments.Add(new BezierSegment
+        {
+            Point1 = c1,
+            Point2 = c2,
+            Point3 = pathEnd
+        });
+
+        var geometry = new PathGeometry();
+        geometry.Figures.Add(figure);
+
+        var labelPoint = EvaluateCubicBezier(startAnchor, c1, c2, pathEnd, 0.5);
+
+        return (geometry, arrowTip, arrowDirection, labelPoint);
     }
 
     private static Vector GetSideNormal(NodeAnchorSide side)
@@ -385,5 +437,28 @@ public sealed class EdgeControl : Canvas
             return new Vector(1, 0);
 
         return new Vector(v.X / len, v.Y / len);
+    }
+
+    private static Point EvaluateCubicBezier(Point p0, Point p1, Point p2, Point p3, double t)
+    {
+        var u = 1.0 - t;
+        var uu = u * u;
+        var uuu = uu * u;
+        var tt = t * t;
+        var ttt = tt * t;
+
+        var x =
+            uuu * p0.X +
+            3 * uu * t * p1.X +
+            3 * u * tt * p2.X +
+            ttt * p3.X;
+
+        var y =
+            uuu * p0.Y +
+            3 * uu * t * p1.Y +
+            3 * u * tt * p2.Y +
+            ttt * p3.Y;
+
+        return new Point(x, y);
     }
 }

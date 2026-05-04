@@ -1,4 +1,4 @@
-using Avalonia;
+ï»¿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -23,6 +23,9 @@ public partial class MainWindow : Window
     private Line? _previewLine;
 
     private readonly List<EdgeControl> _edges = new();
+
+    // âœ… S15 : source de vÃ©ritÃ© locale pour la direction globale
+    private DiagramFlowDirection _currentDiagramFlowDirection = DiagramFlowDirection.LR;
 
     public MainWindow()
     {
@@ -72,10 +75,6 @@ public partial class MainWindow : Window
     private TextBox GetMermaidOutputTextBox()
         => this.FindControl<TextBox>("MermaidOutputTextBox")
            ?? throw new InvalidOperationException("MermaidOutputTextBox introuvable dans MainWindow.");
-
-    private ComboBox GetFlowDirectionComboBox()
-        => this.FindControl<ComboBox>("FlowDirectionComboBox")
-           ?? throw new InvalidOperationException("FlowDirectionComboBox introuvable dans MainWindow.");
 
     private void OnCanvasPressed(object? sender, PointerPressedEventArgs e)
     {
@@ -138,7 +137,7 @@ public partial class MainWindow : Window
 
     private void OnCanvasReleased(object? sender, PointerReleasedEventArgs e)
     {
-        // Rien à faire ici : le commit du lien est géré par la fin de preview
+        // Rien Ã  faire ici : le commit du lien est gÃ©rÃ© par la fin de preview
     }
 
     private void OnNodePressed(object? sender, PointerPressedEventArgs e)
@@ -221,7 +220,7 @@ public partial class MainWindow : Window
         var edgeDirectionCombo = GetSelectedEdgeDirectionComboBox();
         var edgeStyleButton = GetApplyEdgeStyleButton();
 
-        // Node sélectionné
+        // Node sÃ©lectionnÃ©
         if (_selectedNode?.DataContext is Node selectedNodeModel &&
             canvas.Children.Contains(_selectedNode))
         {
@@ -254,7 +253,7 @@ public partial class MainWindow : Window
                 _selectedNode = null;
         }
 
-        // Edge sélectionné
+        // Edge sÃ©lectionnÃ©
         if (_selectedEdge != null && canvas.Children.Contains(_selectedEdge))
         {
             edgeTextBox.IsEnabled = true;
@@ -368,6 +367,30 @@ public partial class MainWindow : Window
         RefreshInspector();
     }
 
+    // âœ… S15 : lit directement le sender, plus de FindControl pendant l'init XAML
+    private void OnFlowDirectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ComboBox combo)
+            return;
+
+        if (combo.SelectedItem is ComboBoxItem item &&
+            item.Content is string value)
+        {
+            _currentDiagramFlowDirection = value switch
+            {
+                "RL" => DiagramFlowDirection.RL,
+                "TB" => DiagramFlowDirection.TB,
+                "BT" => DiagramFlowDirection.BT,
+                _ => DiagramFlowDirection.LR
+            };
+
+            foreach (var edge in _edges)
+            {
+                edge.DiagramDirection = _currentDiagramFlowDirection;
+            }
+        }
+    }
+
     // =============================
     // Preview + commit du lien
     // =============================
@@ -446,7 +469,10 @@ public partial class MainWindow : Window
 
             if (!exists)
             {
-                var edge = new EdgeControl(canvas, _previewSource, targetNode);
+                var edge = new EdgeControl(canvas, _previewSource, targetNode)
+                {
+                    DiagramDirection = _currentDiagramFlowDirection
+                };
 
                 edge.AddHandler(
                     PointerPressedEvent,
@@ -553,16 +579,13 @@ public partial class MainWindow : Window
 
     private string GetSelectedFlowDirection()
     {
-        var combo = GetFlowDirectionComboBox();
-
-        if (combo.SelectedItem is ComboBoxItem item &&
-            item.Content is string value &&
-            (value == "LR" || value == "TB" || value == "RL" || value == "BT"))
+        return _currentDiagramFlowDirection switch
         {
-            return value;
-        }
-
-        return "LR";
+            DiagramFlowDirection.RL => "RL",
+            DiagramFlowDirection.TB => "TB",
+            DiagramFlowDirection.BT => "BT",
+            _ => "LR"
+        };
     }
 
     private static string Escape(string value)
