@@ -20,7 +20,7 @@
                 BorderThickness="0,0,0,1"
                 Padding="8">
 			<DockPanel>
-				<TextBlock Text="MermaidStudio — R3.A Shell"
+				<TextBlock Text="MermaidStudio — R3.B Viewport"
                            Foreground="White"
                            VerticalAlignment="Center"/>
 
@@ -53,6 +53,21 @@
 						<ComboBoxItem Content="RL" />
 						<ComboBoxItem Content="BT" />
 					</ComboBox>
+
+					<Button Content="Zoom -"
+                            Click="OnZoomOutClicked"/>
+
+					<Button Content="Zoom +"
+                            Click="OnZoomInClicked"/>
+
+					<Button Content="100%"
+                            Click="OnResetZoomClicked"/>
+
+					<Button Content="Fit"
+                            Click="OnFitClicked"/>
+
+					<Button Content="Center"
+                            Click="OnCenterClicked"/>
 
 					<Button x:Name="AddStartStateButton"
                             Content="Add Start State"

@@ -18,10 +18,16 @@ namespace MermaidStudio.UI.Avalonia.Controls;
 
 public partial class DiagramWorkspaceControl : UserControl
 {
+    private const double LogicalCanvasWidth = 6000;
+    private const double LogicalCanvasHeight = 4000;
+    private const double FitMargin = 40.0;
+
     private SelectionService? _selectionService;
     private DiagramEditingService? _diagramEditingService;
     private DiagramDocumentService? _documentService;
     private CommandHistory? _history;
+
+    private readonly ViewportState _viewportState = new();
 
     private NodeControl? _previewSource;
     private StateNodeControl? _previewStateSource;
@@ -32,11 +38,22 @@ public partial class DiagramWorkspaceControl : UserControl
 
     private DiagramFlowDirection _currentDiagramFlowDirection = DiagramFlowDirection.LR;
 
+    private bool _isPanning;
+    private Point _panStartPointInViewport;
+    private Vector _panStartOffset;
+
     public event EventHandler? WorkspaceStateChanged;
 
     public DiagramWorkspaceControl()
     {
         AvaloniaXamlLoader.Load(this);
+
+        AddHandler(PointerWheelChangedEvent, OnViewportPointerWheelChanged, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(PointerPressedEvent, OnViewportPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(PointerMovedEvent, OnViewportPointerMoved, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(PointerReleasedEvent, OnViewportPointerReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
+
+        ApplyViewportVisuals();
     }
 
     public void Configure(
@@ -56,6 +73,16 @@ public partial class DiagramWorkspaceControl : UserControl
     public Canvas GetCanvas()
         => this.FindControl<Canvas>("EditorCanvas")
            ?? throw new InvalidOperationException("EditorCanvas introuvable dans DiagramWorkspaceControl.");
+
+    public ScrollViewer GetScrollViewer()
+        => this.FindControl<ScrollViewer>("ViewportScrollViewer")
+           ?? throw new InvalidOperationException("ViewportScrollViewer introuvable dans DiagramWorkspaceControl.");
+
+    private Border GetZoomContainer()
+        => this.FindControl<Border>("ZoomContainer")
+           ?? throw new InvalidOperationException("ZoomContainer introuvable dans DiagramWorkspaceControl.");
+
+    public string GetZoomDisplayText() => _viewportState.GetDisplayText();
 
     public void FocusWorkspace()
     {
@@ -79,6 +106,63 @@ public partial class DiagramWorkspaceControl : UserControl
             SyncFlowchartDocument();
     }
 
+    // =========================================================
+    // Viewport API (R3.B)
+    // =========================================================
+    public void ZoomIn()
+    {
+        var scroll = GetScrollViewer();
+        var center = new Point(scroll.Bounds.Width / 2, scroll.Bounds.Height / 2);
+        ZoomAroundViewportPoint(_viewportState.Zoom + _viewportState.ZoomStep, center);
+    }
+
+    public void ZoomOut()
+    {
+        var scroll = GetScrollViewer();
+        var center = new Point(scroll.Bounds.Width / 2, scroll.Bounds.Height / 2);
+        ZoomAroundViewportPoint(_viewportState.Zoom - _viewportState.ZoomStep, center);
+    }
+
+    public void ResetZoom()
+    {
+        var scroll = GetScrollViewer();
+        var center = new Point(scroll.Bounds.Width / 2, scroll.Bounds.Height / 2);
+        ZoomAroundViewportPoint(1.0, center);
+    }
+
+    public void CenterOnContent()
+    {
+        var bounds = GetDiagramBounds();
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+            return;
+
+        CenterOnBounds(bounds);
+        RaiseWorkspaceChanged();
+    }
+
+    public void FitToContent()
+    {
+        var bounds = GetDiagramBounds();
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+            return;
+
+        var scroll = GetScrollViewer();
+        var viewportWidth = Math.Max(1, scroll.Bounds.Width);
+        var viewportHeight = Math.Max(1, scroll.Bounds.Height);
+
+        var targetZoomX = (viewportWidth - FitMargin) / bounds.Width;
+        var targetZoomY = (viewportHeight - FitMargin) / bounds.Height;
+        var targetZoom = Math.Min(targetZoomX, targetZoomY);
+
+        _viewportState.SetZoom(targetZoom);
+        ApplyViewportVisuals();
+        CenterOnBounds(bounds);
+        RaiseWorkspaceChanged();
+    }
+
+    // =========================================================
+    // Creation / deletion / apply actions
+    // =========================================================
     public void CreateStateNode(StateNodeKind kind, double x, double y)
     {
         EnsureConfigured();
@@ -300,6 +384,9 @@ public partial class DiagramWorkspaceControl : UserControl
         RaiseWorkspaceChanged();
     }
 
+    // =========================================================
+    // Selection helpers
+    // =========================================================
     public NodeControl? GetSelectedFlowNode()
         => _selectionService?.Kind == SelectionKind.Node
             ? _selectionService.GetSelected<NodeControl>()
@@ -383,6 +470,9 @@ public partial class DiagramWorkspaceControl : UserControl
         }
     }
 
+    // =========================================================
+    // Flowchart document sync
+    // =========================================================
     public void SyncFlowchartDocument()
     {
         EnsureConfigured();
@@ -439,6 +529,9 @@ public partial class DiagramWorkspaceControl : UserControl
         _documentService!.Synchronize(direction, nodes, edgeStates);
     }
 
+    // =========================================================
+    // Rebuild / projection
+    // =========================================================
     private void RebuildFromCurrentDocument()
     {
         EnsureConfigured();
@@ -600,6 +693,165 @@ public partial class DiagramWorkspaceControl : UserControl
         control.PortPreviewEnded += OnStatePortPreviewEnded;
 
         return control;
+    }
+
+    // =========================================================
+    // Viewport internals
+    // =========================================================
+    private void ApplyViewportVisuals()
+    {
+        var canvas = GetCanvas();
+        var zoomContainer = GetZoomContainer();
+
+        canvas.Width = LogicalCanvasWidth;
+        canvas.Height = LogicalCanvasHeight;
+        canvas.RenderTransform = new ScaleTransform(_viewportState.Zoom, _viewportState.Zoom);
+
+        zoomContainer.Width = LogicalCanvasWidth * _viewportState.Zoom;
+        zoomContainer.Height = LogicalCanvasHeight * _viewportState.Zoom;
+    }
+
+    private void ZoomAroundViewportPoint(double targetZoom, Point viewportPoint)
+    {
+        var scroll = GetScrollViewer();
+
+        var oldZoom = _viewportState.Zoom;
+        if (!_viewportState.SetZoom(targetZoom))
+            return;
+
+        var oldOffset = scroll.Offset;
+
+        var logicalX = (oldOffset.X + viewportPoint.X) / oldZoom;
+        var logicalY = (oldOffset.Y + viewportPoint.Y) / oldZoom;
+
+        ApplyViewportVisuals();
+
+        var newOffsetX = logicalX * _viewportState.Zoom - viewportPoint.X;
+        var newOffsetY = logicalY * _viewportState.Zoom - viewportPoint.Y;
+
+        scroll.Offset = new Vector(
+            Math.Max(0, newOffsetX),
+            Math.Max(0, newOffsetY));
+
+        RaiseWorkspaceChanged();
+    }
+
+    private Rect GetDiagramBounds()
+    {
+        var rects = new List<Rect>();
+
+        foreach (var node in GetCanvas().Children.OfType<NodeControl>())
+        {
+            var left = Canvas.GetLeft(node);
+            var top = Canvas.GetTop(node);
+            var width = node.Bounds.Width > 0 ? node.Bounds.Width : node.Width;
+            var height = node.Bounds.Height > 0 ? node.Bounds.Height : node.Height;
+
+            rects.Add(new Rect(left, top, Math.Max(1, width), Math.Max(1, height)));
+        }
+
+        foreach (var node in GetCanvas().Children.OfType<StateNodeControl>())
+        {
+            var left = Canvas.GetLeft(node);
+            var top = Canvas.GetTop(node);
+            var width = node.Bounds.Width > 0 ? node.Bounds.Width : node.Width;
+            var height = node.Bounds.Height > 0 ? node.Bounds.Height : node.Height;
+
+            rects.Add(new Rect(left, top, Math.Max(1, width), Math.Max(1, height)));
+        }
+
+        if (rects.Count == 0)
+            return new Rect(0, 0, 0, 0);
+
+        var leftMin = rects.Min(r => r.Left);
+        var topMin = rects.Min(r => r.Top);
+        var rightMax = rects.Max(r => r.Right);
+        var bottomMax = rects.Max(r => r.Bottom);
+
+        return new Rect(leftMin, topMin, rightMax - leftMin, bottomMax - topMin);
+    }
+
+    private void CenterOnBounds(Rect bounds)
+    {
+        var scroll = GetScrollViewer();
+
+        var viewportWidth = Math.Max(1, scroll.Bounds.Width);
+        var viewportHeight = Math.Max(1, scroll.Bounds.Height);
+
+        var targetCenterX = (bounds.Left + bounds.Right) / 2.0;
+        var targetCenterY = (bounds.Top + bounds.Bottom) / 2.0;
+
+        var offsetX = targetCenterX * _viewportState.Zoom - viewportWidth / 2.0;
+        var offsetY = targetCenterY * _viewportState.Zoom - viewportHeight / 2.0;
+
+        scroll.Offset = new Vector(
+            Math.Max(0, offsetX),
+            Math.Max(0, offsetY));
+    }
+
+    private void OnViewportPointerWheelChanged(object? sender, PointerWheelEventArgs e)
+    {
+        if (!e.KeyModifiers.HasFlag(KeyModifiers.Control))
+            return;
+
+        var scroll = GetScrollViewer();
+        var pointInViewport = e.GetPosition(scroll);
+
+        if (e.Delta.Y > 0)
+            ZoomAroundViewportPoint(_viewportState.Zoom + _viewportState.ZoomStep, pointInViewport);
+        else if (e.Delta.Y < 0)
+            ZoomAroundViewportPoint(_viewportState.Zoom - _viewportState.ZoomStep, pointInViewport);
+
+        e.Handled = true;
+    }
+
+    private void OnViewportPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        var point = e.GetCurrentPoint(GetScrollViewer());
+
+        if (!point.Properties.IsRightButtonPressed)
+            return;
+
+        _isPanning = true;
+        _panStartPointInViewport = e.GetPosition(GetScrollViewer());
+        _panStartOffset = GetScrollViewer().Offset;
+
+        e.Pointer.Capture(GetScrollViewer());
+        e.Handled = true;
+    }
+
+    private void OnViewportPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_isPanning)
+            return;
+
+        var currentPoint = e.GetCurrentPoint(GetScrollViewer());
+        if (!currentPoint.Properties.IsRightButtonPressed)
+        {
+            _isPanning = false;
+            e.Pointer.Capture(null);
+            return;
+        }
+
+        var current = e.GetPosition(GetScrollViewer());
+        var dx = current.X - _panStartPointInViewport.X;
+        var dy = current.Y - _panStartPointInViewport.Y;
+
+        GetScrollViewer().Offset = new Vector(
+            Math.Max(0, _panStartOffset.X - dx),
+            Math.Max(0, _panStartOffset.Y - dy));
+
+        e.Handled = true;
+    }
+
+    private void OnViewportPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (!_isPanning)
+            return;
+
+        _isPanning = false;
+        e.Pointer.Capture(null);
+        e.Handled = true;
     }
 
     // =========================================================
@@ -867,10 +1119,7 @@ public partial class DiagramWorkspaceControl : UserControl
                     RoutingStrategies.Bubble,
                     handledEventsToo: true);
             },
-            edge =>
-            {
-                _history!.Execute(new CreateEdgeCommand(canvas, _edges, edge));
-            }
+            edge => _history!.Execute(new CreateEdgeCommand(canvas, _edges, edge))
         );
 
         _previewSource = null;

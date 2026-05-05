@@ -100,7 +100,7 @@ public partial class MainWindow : Window
     }
 
     // =========================================================
-    // Toolbar / kind / special buttons
+    // Toolbar / kind / viewport / special buttons
     // =========================================================
     private void OnDiagramKindChanged(object? sender, SelectionChangedEventArgs e)
     {
@@ -144,6 +144,21 @@ public partial class MainWindow : Window
         GetAddEndStateButton().IsEnabled = isState;
         GetFlowDirectionComboBox().IsEnabled = !isState;
     }
+
+    private void OnZoomInClicked(object? sender, RoutedEventArgs e)
+        => GetWorkspace().ZoomIn();
+
+    private void OnZoomOutClicked(object? sender, RoutedEventArgs e)
+        => GetWorkspace().ZoomOut();
+
+    private void OnResetZoomClicked(object? sender, RoutedEventArgs e)
+        => GetWorkspace().ResetZoom();
+
+    private void OnFitClicked(object? sender, RoutedEventArgs e)
+        => GetWorkspace().FitToContent();
+
+    private void OnCenterClicked(object? sender, RoutedEventArgs e)
+        => GetWorkspace().CenterOnContent();
 
     private void OnAddStartStateClicked(object? sender, RoutedEventArgs e)
     {

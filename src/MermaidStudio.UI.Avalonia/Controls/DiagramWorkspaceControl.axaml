@@ -2,9 +2,22 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="MermaidStudio.UI.Avalonia.Controls.DiagramWorkspaceControl"
              x:CompileBindings="False">
-	<Canvas x:Name="EditorCanvas"
-            Background="#00000000"
-            PointerPressed="OnCanvasPressed"
-            PointerMoved="OnCanvasMoved"
-            PointerReleased="OnCanvasReleased"/>
+
+	<ScrollViewer x:Name="ViewportScrollViewer"
+                  HorizontalScrollBarVisibility="Auto"
+                  VerticalScrollBarVisibility="Auto">
+
+		<Border x:Name="ZoomContainer"
+                Width="6000"
+                Height="4000"
+                RenderTransformOrigin="0,0">
+			<Canvas x:Name="EditorCanvas"
+                    Width="6000"
+                    Height="4000"
+                    Background="#00000000"
+                    PointerPressed="OnCanvasPressed"
+                    PointerMoved="OnCanvasMoved"
+                    PointerReleased="OnCanvasReleased"/>
+		</Border>
+	</ScrollViewer>
 </UserControl>
