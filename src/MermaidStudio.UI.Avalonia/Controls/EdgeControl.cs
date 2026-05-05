@@ -138,6 +138,9 @@ public sealed class EdgeControl : Canvas
         {
             Foreground = Brushes.White,
             Text = string.Empty,
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = TextAlignment.Center,
+            MaxWidth = 190,
             IsHitTestVisible = false
         };
 
@@ -147,7 +150,7 @@ public sealed class EdgeControl : Canvas
             BorderBrush = new SolidColorBrush(Color.Parse("#555555")),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(4),
-            Padding = new Thickness(4, 2),
+            Padding = new Thickness(6, 4),
             IsVisible = false,
             IsHitTestVisible = false,
             Child = _labelText
@@ -167,11 +170,6 @@ public sealed class EdgeControl : Canvas
         UpdateVisual();
     }
 
-    /// <summary>
-    /// S18 fix: permet de recalculer la géométrie après reconstruction du canvas
-    /// lorsque les nodes viennent juste d’être rechargés et que leur layout n’était
-    /// pas encore stabilisé au moment de créer les edges.
-    /// </summary>
     public void RefreshGeometry()
     {
         UpdateVisual();
@@ -217,8 +215,12 @@ public sealed class EdgeControl : Canvas
         if (_detached)
             return;
 
-        if (e.PropertyName == nameof(Node.X) || e.PropertyName == nameof(Node.Y))
+        if (e.PropertyName == nameof(Node.X) ||
+            e.PropertyName == nameof(Node.Y) ||
+            e.PropertyName == nameof(Node.Label))
+        {
             UpdateVisual();
+        }
     }
 
     private void UpdateVisual()
@@ -241,7 +243,7 @@ public sealed class EdgeControl : Canvas
 
         ApplyPathStyle();
         ApplyArrowVisual(geometry.ArrowTip, geometry.ArrowDirectionVector);
-        ApplyLabelVisual(geometry.LabelPoint);
+        ApplyLabelVisual(geometry.LabelPoint, geometry.LabelNormal);
     }
 
     private void ApplyPathStyle()
@@ -308,7 +310,7 @@ public sealed class EdgeControl : Canvas
         };
     }
 
-    private void ApplyLabelVisual(Point labelPoint)
+    private void ApplyLabelVisual(Point labelPoint, Vector labelNormal)
     {
         if (string.IsNullOrWhiteSpace(_label))
         {
@@ -321,11 +323,33 @@ public sealed class EdgeControl : Canvas
             ? Brushes.DodgerBlue
             : new SolidColorBrush(Color.Parse("#555555"));
 
-        _labelBorder.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        _labelBorder.Measure(new Size(210, double.PositiveInfinity));
         var size = _labelBorder.DesiredSize;
 
-        SetLeft(_labelBorder, labelPoint.X - size.Width / 2);
-        SetTop(_labelBorder, labelPoint.Y - size.Height / 2);
+        var normal = Normalize(labelNormal);
+        if (normal.Length < 0.001)
+            normal = new Vector(0, -1);
+
+        // Décalage principal hors de la courbe
+        const double outwardOffset = 22.0;
+
+        // Petite variation déterministe pour mieux séparer des labels voisins
+        var sourceId = (_source.DataContext as Node)?.Id.Value ?? "S";
+        var targetId = (_target.DataContext as Node)?.Id.Value ?? "T";
+        var key = sourceId + "->" + targetId;
+        var parity = Math.Abs(key.GetHashCode()) % 3;
+        var jitter = parity switch
+        {
+            1 => 12.0,
+            2 => -12.0,
+            _ => 0.0
+        };
+
+        var finalX = labelPoint.X + normal.X * outwardOffset + normal.X * jitter;
+        var finalY = labelPoint.Y + normal.Y * outwardOffset + normal.Y * jitter;
+
+        SetLeft(_labelBorder, finalX - size.Width / 2);
+        SetTop(_labelBorder, finalY - size.Height / 2);
     }
 
     private static (NodeAnchorSide StartSide, NodeAnchorSide EndSide)
@@ -349,7 +373,7 @@ public sealed class EdgeControl : Canvas
             : (NodeAnchorSide.Top, NodeAnchorSide.Bottom);
     }
 
-    private static (PathGeometry PathGeometry, Point ArrowTip, Vector ArrowDirectionVector, Point LabelPoint)
+    private static (PathGeometry PathGeometry, Point ArrowTip, Vector ArrowDirectionVector, Point LabelPoint, Vector LabelNormal)
         ComputeBezierGeometry(Point startAnchor, Point endAnchor, NodeAnchorSide endSide, DiagramFlowDirection diagramDirection)
     {
         var outwardNormal = GetSideNormal(endSide);
@@ -376,25 +400,25 @@ public sealed class EdgeControl : Canvas
 
         if (horizontalDominant)
         {
-            var handle = Math.Max(Math.Abs(dx) * 0.5, 40.0);
+            var handle = Math.Max(Math.Abs(dx) * 0.5, 50.0);
             var sign = dx >= 0 ? 1.0 : -1.0;
 
             c1 = new Point(startAnchor.X + handle * sign, startAnchor.Y);
 
             c2 = new Point(
-                pathEnd.X - arrowDirUnit.X * Math.Max(24.0, handle * 0.35),
-                pathEnd.Y - arrowDirUnit.Y * Math.Max(24.0, handle * 0.35));
+                pathEnd.X - arrowDirUnit.X * Math.Max(30.0, handle * 0.35),
+                pathEnd.Y - arrowDirUnit.Y * Math.Max(30.0, handle * 0.35));
         }
         else
         {
-            var handle = Math.Max(Math.Abs(dy) * 0.5, 40.0);
+            var handle = Math.Max(Math.Abs(dy) * 0.5, 50.0);
             var sign = dy >= 0 ? 1.0 : -1.0;
 
             c1 = new Point(startAnchor.X, startAnchor.Y + handle * sign);
 
             c2 = new Point(
-                pathEnd.X - arrowDirUnit.X * Math.Max(24.0, handle * 0.35),
-                pathEnd.Y - arrowDirUnit.Y * Math.Max(24.0, handle * 0.35));
+                pathEnd.X - arrowDirUnit.X * Math.Max(30.0, handle * 0.35),
+                pathEnd.Y - arrowDirUnit.Y * Math.Max(30.0, handle * 0.35));
         }
 
         var figure = new PathFigure
@@ -414,7 +438,10 @@ public sealed class EdgeControl : Canvas
 
         var labelPoint = EvaluateCubicBezier(startAnchor, c1, c2, pathEnd, 0.5);
 
-        return (geometry, arrowTip, arrowDirection, labelPoint);
+        var tangent = EvaluateCubicBezierDerivative(startAnchor, c1, c2, pathEnd, 0.5);
+        var labelNormal = new Vector(-tangent.Y, tangent.X);
+
+        return (geometry, arrowTip, arrowDirection, labelPoint, labelNormal);
     }
 
     private static Vector GetSideNormal(NodeAnchorSide side)
@@ -433,7 +460,7 @@ public sealed class EdgeControl : Canvas
     {
         var len = v.Length;
         if (len < 0.001)
-            return new Vector(1, 0);
+            return new Vector(0, -1);
 
         return new Vector(v.X / len, v.Y / len);
     }
@@ -459,5 +486,22 @@ public sealed class EdgeControl : Canvas
             ttt * p3.Y;
 
         return new Point(x, y);
+    }
+
+    private static Vector EvaluateCubicBezierDerivative(Point p0, Point p1, Point p2, Point p3, double t)
+    {
+        var u = 1.0 - t;
+
+        var x =
+            3 * u * u * (p1.X - p0.X) +
+            6 * u * t * (p2.X - p1.X) +
+            3 * t * t * (p3.X - p2.X);
+
+        var y =
+            3 * u * u * (p1.Y - p0.Y) +
+            6 * u * t * (p2.Y - p1.Y) +
+            3 * t * t * (p3.Y - p2.Y);
+
+        return new Vector(x, y);
     }
 }

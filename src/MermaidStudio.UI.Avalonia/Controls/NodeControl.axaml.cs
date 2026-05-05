@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
@@ -20,6 +21,12 @@ public enum NodeAnchorSide
 
 public partial class NodeControl : UserControl
 {
+    private const double MinNodeWidth = 140;
+    private const double MinNodeHeight = 60;
+    private const double MaxTextWidth = 180;
+    private const double HorizontalPadding = 28;
+    private const double VerticalPadding = 22;
+
     private bool _dragging;
     private bool _previewDragging;
     private Point _startMouse;
@@ -31,10 +38,10 @@ public partial class NodeControl : UserControl
     private Border? _rootBorder;
     private Polygon? _decisionShape;
     private Ellipse? _circleShape;
+    private TextBlock? _labelText;
 
     private bool _isSelected;
 
-    // Preview / linking
     public event Action<NodeControl, Point>? PortPreviewStarted;
     public event Action<Point>? PortPreviewMoved;
     public event Action? PortPreviewEnded;
@@ -46,6 +53,7 @@ public partial class NodeControl : UserControl
         _rootBorder = this.FindControl<Border>("RootBorder");
         _decisionShape = this.FindControl<Polygon>("DecisionShape");
         _circleShape = this.FindControl<Ellipse>("CircleShape");
+        _labelText = this.FindControl<TextBlock>("LabelText");
 
         DataContextChanged += (_, _) =>
         {
@@ -67,7 +75,8 @@ public partial class NodeControl : UserControl
 
     private void OnNodePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(Node.VisualStyle))
+        if (e.PropertyName == nameof(Node.VisualStyle) ||
+            e.PropertyName == nameof(Node.Label))
         {
             UpdateVisualStyle();
         }
@@ -81,7 +90,7 @@ public partial class NodeControl : UserControl
 
     private void UpdateVisualStyle()
     {
-        if (_rootBorder == null || _decisionShape == null || _circleShape == null)
+        if (_rootBorder == null || _decisionShape == null || _circleShape == null || _labelText == null)
             return;
 
         var style = _node?.VisualStyle ?? NodeVisualStyle.Rectangle;
@@ -89,6 +98,8 @@ public partial class NodeControl : UserControl
         _rootBorder.IsVisible = false;
         _decisionShape.IsVisible = false;
         _circleShape.IsVisible = false;
+
+        UpdateSizeAndShape(style);
 
         switch (style)
         {
@@ -99,7 +110,7 @@ public partial class NodeControl : UserControl
 
             case NodeVisualStyle.Rounded:
                 _rootBorder.IsVisible = true;
-                _rootBorder.CornerRadius = new CornerRadius(12);
+                _rootBorder.CornerRadius = new CornerRadius(14);
                 break;
 
             case NodeVisualStyle.Decision:
@@ -112,6 +123,49 @@ public partial class NodeControl : UserControl
         }
 
         ApplySelectionVisual();
+    }
+
+    private void UpdateSizeAndShape(NodeVisualStyle style)
+    {
+        if (_labelText == null || _decisionShape == null || _circleShape == null)
+            return;
+
+        _labelText.MaxWidth = MaxTextWidth;
+        _labelText.Text = _node?.Label ?? string.Empty;
+
+        _labelText.Measure(new Size(MaxTextWidth, double.PositiveInfinity));
+        var labelSize = _labelText.DesiredSize;
+
+        double targetWidth = Math.Max(MinNodeWidth, labelSize.Width + HorizontalPadding);
+        double targetHeight = Math.Max(MinNodeHeight, labelSize.Height + VerticalPadding);
+
+        switch (style)
+        {
+            case NodeVisualStyle.Decision:
+                targetWidth = Math.Max(targetWidth + 30, 170);
+                targetHeight = Math.Max(targetHeight + 10, 80);
+                break;
+
+            case NodeVisualStyle.Circle:
+                targetWidth = Math.Max(targetWidth + 20, 150);
+                targetHeight = Math.Max(targetHeight + 16, 78);
+                break;
+        }
+
+        Width = targetWidth;
+        Height = targetHeight;
+
+        // Mise à jour des formes dépendantes de la taille
+        _decisionShape.Points = new AvaloniaList<Point>
+        {
+            new(targetWidth / 2, 0),
+            new(targetWidth, targetHeight / 2),
+            new(targetWidth / 2, targetHeight),
+            new(0, targetHeight / 2)
+        };
+
+        _circleShape.Width = Math.Max(120, targetWidth - 18);
+        _circleShape.Height = Math.Max(52, targetHeight - 12);
     }
 
     private void ApplySelectionVisual()
@@ -185,9 +239,6 @@ public partial class NodeControl : UserControl
         e.Handled = true;
     }
 
-    // =============================
-    // Preview / linking depuis le port droit
-    // =============================
     private void OnRightPortPressed(object? sender, PointerPressedEventArgs e)
     {
         if (!e.KeyModifiers.HasFlag(KeyModifiers.Control))
@@ -217,9 +268,6 @@ public partial class NodeControl : UserControl
         e.Handled = true;
     }
 
-    // =============================
-    // Helpers géométriques
-    // =============================
     public bool IsOverRightPort(Point pointRelativeTo, Visual relativeTo)
     {
         var port = this.FindControl<Control>("RightPort");

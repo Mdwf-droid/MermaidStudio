@@ -118,7 +118,7 @@ public sealed class FlowchartMermaidImportService
         if (!headerFound)
             throw new InvalidOperationException("Aucun en-tête flowchart valide n'a été trouvé.");
 
-        ApplyDeterministicLayout(document);
+        ApplyTreeLikeLayout(document);
         return document;
     }
 
@@ -170,7 +170,8 @@ public sealed class FlowchartMermaidImportService
         if (TryMatch(DecisionRegex, line, NodeVisualStyle.Decision, out id, out label, out style)) return true;
         if (TryMatch(CircleRegex, line, NodeVisualStyle.Circle, out id, out label, out style)) return true;
 
-        id = label = "";
+        id = string.Empty;
+        label = string.Empty;
         style = NodeVisualStyle.Rectangle;
         return false;
     }
@@ -186,14 +187,18 @@ public sealed class FlowchartMermaidImportService
         var m = rx.Match(line);
         if (!m.Success)
         {
-            id = label = "";
+            id = string.Empty;
+            label = string.Empty;
             style = NodeVisualStyle.Rectangle;
             return false;
         }
 
         id = m.Groups["id"].Value;
-        label = m.Groups["quoted"].Success ? m.Groups["quoted"].Value :
-                m.Groups["raw"].Success ? m.Groups["raw"].Value : "";
+        label = m.Groups["quoted"].Success
+            ? m.Groups["quoted"].Value
+            : m.Groups["raw"].Success
+                ? m.Groups["raw"].Value
+                : string.Empty;
         style = st;
         return true;
     }
@@ -223,37 +228,280 @@ public sealed class FlowchartMermaidImportService
         _ => FlowDirection.LR
     };
 
-    private static void ApplyDeterministicLayout(DiagramDocument doc)
+    private static void ApplyTreeLikeLayout(DiagramDocument doc)
     {
-        const double baseX = 100;
-        const double baseY = 80;
-        const double deltaX = 240;
-        const double deltaY = 140;
+        if (doc.Nodes.Count == 0)
+            return;
 
-        // ✅ S18 fix final :
-        // respect visuel simple de la direction du diagramme
-        switch (doc.Direction)
+        var orderedNodes = doc.Nodes
+            .Select((n, i) => new { Node = n, Index = i })
+            .ToList();
+
+        var orderIndex = orderedNodes.ToDictionary(
+            x => x.Node.Id.Value,
+            x => x.Index,
+            StringComparer.Ordinal);
+
+        // Estimation simple des tailles visuelles des nodes
+        var sizeById = doc.Nodes.ToDictionary(
+            n => n.Id.Value,
+            n => EstimateNodeSize(n),
+            StringComparer.Ordinal);
+
+        var outgoing = doc.Nodes.ToDictionary(
+            n => n.Id.Value,
+            _ => new List<string>(),
+            StringComparer.Ordinal);
+
+        var incoming = doc.Nodes.ToDictionary(
+            n => n.Id.Value,
+            _ => new List<string>(),
+            StringComparer.Ordinal);
+
+        foreach (var edge in doc.Edges)
         {
-            case FlowDirection.TB:
-            case FlowDirection.BT:
-                // colonne verticale
-                for (int i = 0; i < doc.Nodes.Count; i++)
-                {
-                    doc.Nodes[i].X = baseX;
-                    doc.Nodes[i].Y = baseY + i * deltaY;
-                }
+            var src = edge.SourceNodeId.Value;
+            var dst = edge.TargetNodeId.Value;
+
+            if (!outgoing.ContainsKey(src) || !incoming.ContainsKey(dst))
+                continue;
+
+            if (!outgoing[src].Contains(dst, StringComparer.Ordinal))
+                outgoing[src].Add(dst);
+
+            if (!incoming[dst].Contains(src, StringComparer.Ordinal))
+                incoming[dst].Add(src);
+        }
+
+        foreach (var key in outgoing.Keys.ToList())
+            outgoing[key] = outgoing[key].OrderBy(id => orderIndex[id]).ToList();
+
+        foreach (var key in incoming.Keys.ToList())
+            incoming[key] = incoming[key].OrderBy(id => orderIndex[id]).ToList();
+
+        // Arbre directeur : un parent principal par node = premier incoming stable
+        var parentById = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var node in doc.Nodes)
+        {
+            var id = node.Id.Value;
+            parentById[id] = incoming[id].Count > 0 ? incoming[id][0] : null;
+        }
+
+        var childrenById = doc.Nodes.ToDictionary(
+            n => n.Id.Value,
+            _ => new List<string>(),
+            StringComparer.Ordinal);
+
+        foreach (var kv in parentById)
+        {
+            if (!string.IsNullOrWhiteSpace(kv.Value) && childrenById.ContainsKey(kv.Value!))
+                childrenById[kv.Value!].Add(kv.Key);
+        }
+
+        foreach (var key in childrenById.Keys.ToList())
+            childrenById[key] = childrenById[key].OrderBy(id => orderIndex[id]).ToList();
+
+        var roots = doc.Nodes
+            .Where(n => parentById[n.Id.Value] == null)
+            .OrderBy(n => orderIndex[n.Id.Value])
+            .Select(n => n.Id.Value)
+            .ToList();
+
+        if (roots.Count == 0)
+            roots.Add(doc.Nodes.OrderBy(n => orderIndex[n.Id.Value]).First().Id.Value);
+
+        var depthById = new Dictionary<string, int>(StringComparer.Ordinal);
+        var subtreeSpanById = new Dictionary<string, double>(StringComparer.Ordinal);
+        var xCenterById = new Dictionary<string, double>(StringComparer.Ordinal);
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+
+        void AssignDepth(string id, int depth)
+        {
+            if (visited.Contains(id))
+            {
+                depthById[id] = Math.Max(depthById[id], depth);
+                return;
+            }
+
+            visited.Add(id);
+            depthById[id] = depth;
+
+            foreach (var child in childrenById[id])
+                AssignDepth(child, depth + 1);
+        }
+
+        foreach (var root in roots)
+            AssignDepth(root, 0);
+
+        foreach (var node in doc.Nodes.OrderBy(n => orderIndex[n.Id.Value]))
+        {
+            if (!depthById.ContainsKey(node.Id.Value))
+                depthById[node.Id.Value] = 0;
+        }
+
+        double ComputeSubtreeSpan(string id)
+        {
+            if (subtreeSpanById.TryGetValue(id, out var cached))
+                return cached;
+
+            var selfWidth = sizeById[id].Width;
+            var children = childrenById[id];
+
+            if (children.Count == 0)
+            {
+                subtreeSpanById[id] = selfWidth;
+                return selfWidth;
+            }
+
+            const double siblingGap = 80.0;
+
+            double total = 0.0;
+            for (int i = 0; i < children.Count; i++)
+            {
+                if (i > 0)
+                    total += siblingGap;
+
+                total += ComputeSubtreeSpan(children[i]);
+            }
+
+            var span = Math.Max(selfWidth, total);
+            subtreeSpanById[id] = span;
+            return span;
+        }
+
+        foreach (var root in roots)
+            ComputeSubtreeSpan(root);
+
+        void AssignCenters(string id, double left)
+        {
+            var children = childrenById[id];
+
+            if (children.Count == 0)
+            {
+                xCenterById[id] = left + subtreeSpanById[id] / 2.0;
+                return;
+            }
+
+            const double siblingGap = 80.0;
+
+            double currentLeft = left;
+            foreach (var child in children)
+            {
+                AssignCenters(child, currentLeft);
+                currentLeft += subtreeSpanById[child] + siblingGap;
+            }
+
+            var first = children.First();
+            var last = children.Last();
+
+            var center = (xCenterById[first] + xCenterById[last]) / 2.0;
+            xCenterById[id] = center;
+        }
+
+        double rootLeft = 100.0;
+        const double rootGap = 140.0;
+
+        foreach (var root in roots)
+        {
+            AssignCenters(root, rootLeft);
+            rootLeft += subtreeSpanById[root] + rootGap;
+        }
+
+        foreach (var node in doc.Nodes.OrderBy(n => orderIndex[n.Id.Value]))
+        {
+            if (!xCenterById.ContainsKey(node.Id.Value))
+            {
+                xCenterById[node.Id.Value] = rootLeft;
+                rootLeft += sizeById[node.Id.Value].Width + rootGap;
+            }
+        }
+
+        var maxDepth = depthById.Values.DefaultIfEmpty(0).Max();
+
+        var maxHeightByDepth = Enumerable.Range(0, maxDepth + 1)
+            .ToDictionary(
+                d => d,
+                d => doc.Nodes
+                    .Where(n => depthById[n.Id.Value] == d)
+                    .Select(n => sizeById[n.Id.Value].Height)
+                    .DefaultIfEmpty(70)
+                    .Max());
+
+        var axisOffsetByDepth = new Dictionary<int, double>();
+        const double baseAxis = 100.0;
+        const double levelGap = 90.0;
+
+        double currentAxis = baseAxis;
+        for (int d = 0; d <= maxDepth; d++)
+        {
+            axisOffsetByDepth[d] = currentAxis;
+            currentAxis += maxHeightByDepth[d] + levelGap;
+        }
+
+        foreach (var node in doc.Nodes)
+        {
+            var id = node.Id.Value;
+            var size = sizeById[id];
+            var depth = depthById[id];
+            var center = xCenterById[id];
+
+            switch (doc.Direction)
+            {
+                case FlowDirection.TB:
+                    node.X = center - size.Width / 2.0;
+                    node.Y = axisOffsetByDepth[depth];
+                    break;
+
+                case FlowDirection.BT:
+                    node.X = center - size.Width / 2.0;
+                    node.Y = axisOffsetByDepth[maxDepth - depth];
+                    break;
+
+                case FlowDirection.RL:
+                    node.X = axisOffsetByDepth[maxDepth - depth];
+                    node.Y = center - size.Height / 2.0;
+                    break;
+
+                case FlowDirection.LR:
+                default:
+                    node.X = axisOffsetByDepth[depth];
+                    node.Y = center - size.Height / 2.0;
+                    break;
+            }
+        }
+    }
+
+    private static (double Width, double Height) EstimateNodeSize(Node node)
+    {
+        const double minWidth = 140;
+        const double minHeight = 60;
+        const double maxTextWidth = 180;
+        const double horizontalPadding = 28;
+        const double verticalPadding = 22;
+        const double estimatedCharWidth = 7.2;
+        const double estimatedLineHeight = 18.0;
+
+        var text = string.IsNullOrWhiteSpace(node.Label) ? "Node" : node.Label;
+        var estimatedTextWidth = Math.Min(maxTextWidth, Math.Max(40, text.Length * estimatedCharWidth));
+        var estimatedLines = Math.Max(1, (int)Math.Ceiling((text.Length * estimatedCharWidth) / maxTextWidth));
+        var estimatedTextHeight = estimatedLines * estimatedLineHeight;
+
+        double width = Math.Max(minWidth, estimatedTextWidth + horizontalPadding);
+        double height = Math.Max(minHeight, estimatedTextHeight + verticalPadding);
+
+        switch (node.VisualStyle)
+        {
+            case NodeVisualStyle.Decision:
+                width = Math.Max(width + 30, 170);
+                height = Math.Max(height + 10, 80);
                 break;
 
-            case FlowDirection.RL:
-            case FlowDirection.LR:
-            default:
-                // ligne horizontale
-                for (int i = 0; i < doc.Nodes.Count; i++)
-                {
-                    doc.Nodes[i].X = baseX + i * deltaX;
-                    doc.Nodes[i].Y = baseY;
-                }
+            case NodeVisualStyle.Circle:
+                width = Math.Max(width + 20, 150);
+                height = Math.Max(height + 16, 78);
                 break;
         }
+
+        return (width, height);
     }
 }
