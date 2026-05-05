@@ -1,0 +1,34 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="MermaidStudio.UI.Avalonia.Views.ImportMermaidWindow"
+        Width="900"
+        Height="600"
+        Title="Import Mermaid"
+        Background="#1E1E1E">
+
+	<Grid RowDefinitions="Auto,*,Auto"
+          Margin="12">
+
+		<TextBlock Text="Paste a Mermaid flowchart (supported subset only)"
+                   Foreground="White"/>
+
+		<TextBox x:Name="MermaidInputTextBox"
+                 Grid.Row="1"
+                 Margin="0,12,0,12"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 FontFamily="Consolas"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                 ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
+
+		<StackPanel Grid.Row="2"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Spacing="8">
+			<Button Content="Cancel"
+                    Click="OnCancelClicked"/>
+			<Button Content="Import"
+                    Click="OnImportClicked"/>
+		</StackPanel>
+	</Grid>
+</Window>

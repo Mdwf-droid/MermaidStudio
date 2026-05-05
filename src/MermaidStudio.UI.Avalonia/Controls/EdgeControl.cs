@@ -111,7 +111,6 @@ public sealed class EdgeControl : Canvas
         Height = Math.Max(1, _parentCanvas.Bounds.Height);
         ClipToBounds = false;
 
-        // Path invisible mais cliquable
         _hitPath = new PathShape
         {
             Stroke = Brushes.Transparent,
@@ -119,7 +118,6 @@ public sealed class EdgeControl : Canvas
             IsHitTestVisible = true
         };
 
-        // Path visible Bézier
         _visiblePath = new PathShape
         {
             Stroke = Brushes.White,
@@ -128,7 +126,6 @@ public sealed class EdgeControl : Canvas
             IsHitTestVisible = false
         };
 
-        // Tête de flèche
         _arrowHead = new Polygon
         {
             Fill = Brushes.White,
@@ -137,7 +134,6 @@ public sealed class EdgeControl : Canvas
             IsHitTestVisible = false
         };
 
-        // Label d’edge
         _labelText = new TextBlock
         {
             Foreground = Brushes.White,
@@ -168,6 +164,16 @@ public sealed class EdgeControl : Canvas
     public void SetSelected(bool selected)
     {
         _selected = selected;
+        UpdateVisual();
+    }
+
+    /// <summary>
+    /// S18 fix: permet de recalculer la géométrie après reconstruction du canvas
+    /// lorsque les nodes viennent juste d’être rechargés et que leur layout n’était
+    /// pas encore stabilisé au moment de créer les edges.
+    /// </summary>
+    public void RefreshGeometry()
+    {
         UpdateVisual();
     }
 
@@ -220,18 +226,14 @@ public sealed class EdgeControl : Canvas
         if (_detached)
             return;
 
-        // 1) Extrémités sémantiques effectives
         var visualStartNode = _direction == EdgeDirection.Forward ? _source : _target;
         var visualEndNode = _direction == EdgeDirection.Forward ? _target : _source;
 
-        // 2) Ancrage intelligent (S13) basé sur le sens effectif
         var (startSide, endSide) = ComputeAnchorSides(visualStartNode, visualEndNode);
 
-        // 3) Points d’ancrage
         var startAnchor = visualStartNode.GetAnchorPoint(startSide, _parentCanvas);
         var endAnchor = visualEndNode.GetAnchorPoint(endSide, _parentCanvas);
 
-        // 4) Géométrie visuelle Bézier
         var geometry = ComputeBezierGeometry(startAnchor, endAnchor, endSide, _diagramDirection);
 
         _hitPath.Data = geometry.PathGeometry;
@@ -352,10 +354,8 @@ public sealed class EdgeControl : Canvas
     {
         var outwardNormal = GetSideNormal(endSide);
 
-        // Pointe légèrement à l’extérieur du node d’arrivée
         var arrowTip = endAnchor + outwardNormal * ArrowTipOffset;
 
-        // La flèche doit pointer vers le node d’arrivée
         var arrowDirection = -outwardNormal;
         var arrowDirUnit = Normalize(arrowDirection);
 
@@ -364,7 +364,6 @@ public sealed class EdgeControl : Canvas
             arrowTip.X - arrowDirUnit.X * arrowLength,
             arrowTip.Y - arrowDirUnit.Y * arrowLength);
 
-        // Contrôles Bézier selon la direction globale Mermaid
         var dx = pathEnd.X - startAnchor.X;
         var dy = pathEnd.Y - startAnchor.Y;
 

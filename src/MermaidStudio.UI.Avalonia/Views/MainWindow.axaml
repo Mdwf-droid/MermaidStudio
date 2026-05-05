@@ -19,7 +19,7 @@
                 BorderThickness="0,0,0,1"
                 Padding="8">
 			<DockPanel>
-				<TextBlock Text="MermaidStudio — S15 Bézier edges"
+				<TextBlock Text="MermaidStudio — S18 Save / Load / Import"
                            Foreground="White"
                            VerticalAlignment="Center"/>
 
@@ -40,6 +40,15 @@
 						<ComboBoxItem Content="RL" />
 						<ComboBoxItem Content="BT" />
 					</ComboBox>
+
+					<Button Content="Save JSON"
+                            Click="OnSaveJsonClicked"/>
+
+					<Button Content="Load JSON"
+                            Click="OnLoadJsonClicked"/>
+
+					<Button Content="Import Mermaid"
+                            Click="OnImportMermaidClicked"/>
 
 					<Button Content="Export Mermaid"
                             Click="OnExportMermaidClicked"/>

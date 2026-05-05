@@ -44,4 +44,25 @@ public sealed class DiagramDocumentService
             });
         }
     }
+
+    public void LoadDocument(DiagramDocument document)
+    {
+        if (document.Kind != DiagramKind.Flowchart)
+            throw new InvalidOperationException("Seuls les documents Flowchart sont supportés dans S18.");
+
+        CurrentDocument.Kind = document.Kind;
+        CurrentDocument.Direction = document.Direction;
+
+        CurrentDocument.Nodes.Clear();
+        foreach (var node in document.Nodes)
+        {
+            CurrentDocument.Nodes.Add(node);
+        }
+
+        CurrentDocument.Edges.Clear();
+        foreach (var edge in document.Edges)
+        {
+            CurrentDocument.Edges.Add(edge);
+        }
+    }
 }

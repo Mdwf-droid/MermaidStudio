@@ -5,12 +5,18 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using MermaidStudio.Application.Editing;
 using MermaidStudio.Application.Export;
+using MermaidStudio.Application.Import;
+using MermaidStudio.Application.Persistence;
+using MermaidStudio.Domain.Diagrams;
 using MermaidStudio.Domain.Edges;
 using MermaidStudio.Domain.Nodes;
 using MermaidStudio.UI.Avalonia.Controls;
 using MermaidStudio.UI.Avalonia.Editing;
+using System.IO;
 using DocumentFlowDirection = MermaidStudio.Domain.Diagrams.FlowDirection;
 
 namespace MermaidStudio.UI.Avalonia.Views;
@@ -20,28 +26,23 @@ public partial class MainWindow : Window
     private readonly CommandHistory _history = new();
     private readonly FlowchartExportService _flowchartExportService = new();
 
-    // ✅ R1.B : source de vérité de la sélection
     private readonly SelectionService _selectionService = new();
-
-    // ✅ R1.C : orchestration des actions d’édition
     private readonly DiagramEditingService _diagramEditingService;
-
-    // ✅ R1.D + R2.C : état de l’inspecteur, maintenant lu depuis le document
     private readonly InspectorStateService _inspectorStateService;
-
-    // ✅ R2.A : document courant réel, tenu à jour en parallèle
     private readonly DiagramDocumentService _documentService = new();
+
+    private readonly DiagramDocumentJsonService _jsonService = new();
+    private readonly FlowchartMermaidImportService _mermaidImportService = new();
 
     private NodeControl? _previewSource;
     private Line? _previewLine;
 
     private readonly List<EdgeControl> _edges = new();
 
-    // S15 : source de vérité locale pour la direction globale
     private DiagramFlowDirection _currentDiagramFlowDirection = DiagramFlowDirection.LR;
 
-    // ✅ garde-fou pour éviter les accès trop tôt pendant l'initialisation XAML
     private bool _uiReady;
+    private bool _suspendFlowDirectionHandling;
 
     public MainWindow()
     {
@@ -52,13 +53,19 @@ public partial class MainWindow : Window
         AvaloniaXamlLoader.Load(this);
         _uiReady = true;
 
-        // Document initial vide
+        // S18 fix : capture clavier robuste même si un TextBox garde le focus
+        AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
+
         SyncCurrentDocument();
     }
 
     private Canvas GetEditorCanvas()
         => this.FindControl<Canvas>("EditorCanvas")
            ?? throw new InvalidOperationException("EditorCanvas introuvable dans MainWindow.");
+
+    private ComboBox GetFlowDirectionComboBox()
+        => this.FindControl<ComboBox>("FlowDirectionComboBox")
+           ?? throw new InvalidOperationException("FlowDirectionComboBox introuvable dans MainWindow.");
 
     private TextBox GetSelectedNodeLabelTextBox()
         => this.FindControl<TextBox>("SelectedNodeLabelTextBox")
@@ -110,6 +117,231 @@ public partial class MainWindow : Window
             ? _selectionService.GetSelected<EdgeControl>()
             : null;
 
+    // =========================================================
+    // S18 — Save / Load JSON
+    // =========================================================
+    private async void OnSaveJsonClicked(object? sender, RoutedEventArgs e)
+    {
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel?.StorageProvider is null)
+            return;
+
+        var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Save diagram as JSON",
+            SuggestedFileName = "diagram.flowchart.json",
+            DefaultExtension = "json",
+            FileTypeChoices = new[]
+            {
+                new FilePickerFileType("JSON")
+                {
+                    Patterns = new[] { "*.json" }
+                }
+            }
+        });
+
+        if (file == null)
+            return;
+
+        var json = _jsonService.Serialize(_documentService.CurrentDocument);
+
+        await using var stream = await file.OpenWriteAsync();
+        using var writer = new StreamWriter(stream);
+        await writer.WriteAsync(json);
+    }
+
+    private async void OnLoadJsonClicked(object? sender, RoutedEventArgs e)
+    {
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel?.StorageProvider is null)
+            return;
+
+        var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Load diagram JSON",
+            AllowMultiple = false,
+            FileTypeFilter = new[]
+            {
+                new FilePickerFileType("JSON")
+                {
+                    Patterns = new[] { "*.json" }
+                }
+            }
+        });
+
+        var file = files.FirstOrDefault();
+        if (file == null)
+            return;
+
+        try
+        {
+            await using var stream = await file.OpenReadAsync();
+            using var reader = new StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+
+            var document = _jsonService.Deserialize(json);
+            LoadDocumentIntoEditor(document);
+        }
+        catch (Exception ex)
+        {
+            GetMermaidOutputTextBox().Text = $"Load JSON failed: {ex.Message}";
+        }
+    }
+
+    // =========================================================
+    // S18 — Import Mermaid “pur”
+    // =========================================================
+    private async void OnImportMermaidClicked(object? sender, RoutedEventArgs e)
+    {
+        var dialog = new ImportMermaidWindow();
+        var mermaidText = await dialog.ShowDialog<string?>(this);
+
+        if (string.IsNullOrWhiteSpace(mermaidText))
+            return;
+
+        try
+        {
+            var document = _mermaidImportService.Import(mermaidText);
+            LoadDocumentIntoEditor(document);
+        }
+        catch (Exception ex)
+        {
+            GetMermaidOutputTextBox().Text = $"Import Mermaid failed: {ex.Message}";
+        }
+    }
+
+    private void LoadDocumentIntoEditor(DiagramDocument document)
+    {
+        ClearSelectionVisualOnly();
+        _selectionService.ClearSelection();
+        _history.Clear();
+
+        _documentService.LoadDocument(document);
+
+        _currentDiagramFlowDirection = document.Direction switch
+        {
+            DocumentFlowDirection.TB => DiagramFlowDirection.TB,
+            DocumentFlowDirection.RL => DiagramFlowDirection.RL,
+            DocumentFlowDirection.BT => DiagramFlowDirection.BT,
+            _ => DiagramFlowDirection.LR
+        };
+
+        ApplyDocumentDirectionToUi();
+        RebuildCanvasFromCurrentDocument();
+        RefreshInspector();
+        Focus();
+    }
+
+    private void ApplyDocumentDirectionToUi()
+    {
+        if (!_uiReady)
+            return;
+
+        var combo = GetFlowDirectionComboBox();
+
+        _suspendFlowDirectionHandling = true;
+        combo.SelectedIndex = _currentDiagramFlowDirection switch
+        {
+            DiagramFlowDirection.TB => 1,
+            DiagramFlowDirection.RL => 2,
+            DiagramFlowDirection.BT => 3,
+            _ => 0
+        };
+        _suspendFlowDirectionHandling = false;
+    }
+
+    private void RebuildCanvasFromCurrentDocument()
+    {
+        var canvas = GetEditorCanvas();
+
+        if (_previewLine != null)
+        {
+            canvas.Children.Remove(_previewLine);
+            _previewLine = null;
+        }
+
+        _previewSource = null;
+
+        var existingNodes = canvas.Children.OfType<NodeControl>().ToList();
+        foreach (var node in existingNodes)
+            canvas.Children.Remove(node);
+
+        foreach (var edge in _edges.ToList())
+            canvas.Children.Remove(edge);
+
+        _edges.Clear();
+
+        var nodeMap = new Dictionary<string, NodeControl>(StringComparer.Ordinal);
+
+        foreach (var node in _documentService.CurrentDocument.Nodes)
+        {
+            var control = new NodeControl
+            {
+                DataContext = node
+            };
+
+            control.AddHandler(
+                PointerPressedEvent,
+                OnNodePressed,
+                RoutingStrategies.Bubble,
+                handledEventsToo: true);
+
+            control.PortPreviewStarted += OnPortPreviewStarted;
+            control.PortPreviewMoved += OnPortPreviewMoved;
+            control.PortPreviewEnded += OnPortPreviewEnded;
+
+            Canvas.SetLeft(control, node.X);
+            Canvas.SetTop(control, node.Y);
+
+            canvas.Children.Add(control);
+            nodeMap[node.Id.Value] = control;
+        }
+
+        foreach (var edge in _documentService.CurrentDocument.Edges)
+        {
+            if (!nodeMap.TryGetValue(edge.SourceNodeId.Value, out var sourceControl))
+                continue;
+
+            if (!nodeMap.TryGetValue(edge.TargetNodeId.Value, out var targetControl))
+                continue;
+
+            var control = new EdgeControl(canvas, sourceControl, targetControl)
+            {
+                DiagramDirection = _currentDiagramFlowDirection,
+                Label = edge.Label ?? string.Empty,
+                StyleKind = edge.Kind switch
+                {
+                    EdgeKind.Dashed => EdgeStyleKind.Dashed,
+                    EdgeKind.Thick => EdgeStyleKind.Thick,
+                    _ => EdgeStyleKind.Default
+                },
+                Direction = edge.Direction == DocumentEdgeDirection.Reverse
+                    ? EdgeDirection.Reverse
+                    : EdgeDirection.Forward
+            };
+
+            control.AddHandler(
+                PointerPressedEvent,
+                OnEdgePressed,
+                RoutingStrategies.Bubble,
+                handledEventsToo: true);
+
+            _edges.Add(control);
+            canvas.Children.Insert(0, control);
+        }
+
+        // S18 fix : après reconstruction, recalculer la géométrie des edges
+        // une fois le layout des nodes réellement stabilisé.
+        Dispatcher.UIThread.Post(() =>
+        {
+            foreach (var edge in _edges)
+                edge.RefreshGeometry();
+        }, DispatcherPriority.Loaded);
+    }
+
+    // =========================================================
+    // Interactions canvas / sélection
+    // =========================================================
     private void OnCanvasPressed(object? sender, PointerPressedEventArgs e)
     {
         Focus();
@@ -185,6 +417,7 @@ public partial class MainWindow : Window
         if (!e.KeyModifiers.HasFlag(KeyModifiers.Shift))
             return;
 
+        Focus();
         e.Handled = true;
 
         var node = (NodeControl)sender!;
@@ -196,6 +429,7 @@ public partial class MainWindow : Window
         if (!e.KeyModifiers.HasFlag(KeyModifiers.Shift))
             return;
 
+        Focus();
         e.Handled = true;
 
         var edge = (EdgeControl)sender!;
@@ -248,6 +482,9 @@ public partial class MainWindow : Window
         RefreshInspector();
     }
 
+    // =========================================================
+    // Inspecteur (R2.C)
+    // =========================================================
     private void RefreshInspector()
     {
         if (!_uiReady)
@@ -306,7 +543,6 @@ public partial class MainWindow : Window
         var edgeDirectionCombo = GetSelectedEdgeDirectionComboBox();
         var edgeStyleButton = GetApplyEdgeStyleButton();
 
-        // Section node
         nodeTextBox.IsEnabled = state.NodeSectionEnabled;
         nodeLabelButton.IsEnabled = state.NodeSectionEnabled;
         nodeStyleCombo.IsEnabled = state.NodeSectionEnabled;
@@ -315,7 +551,6 @@ public partial class MainWindow : Window
         nodeTextBox.Text = state.NodeLabel;
         nodeStyleCombo.SelectedIndex = state.NodeStyleIndex;
 
-        // Section edge
         edgeTextBox.IsEnabled = state.EdgeSectionEnabled;
         edgeLabelButton.IsEnabled = state.EdgeSectionEnabled;
         edgeStyleCombo.IsEnabled = state.EdgeSectionEnabled;
@@ -327,6 +562,9 @@ public partial class MainWindow : Window
         edgeDirectionCombo.SelectedIndex = state.EdgeDirectionIndex;
     }
 
+    // =========================================================
+    // Apply depuis l’inspecteur
+    // =========================================================
     private void OnApplyNodeLabelClicked(object? sender, RoutedEventArgs e)
     {
         _diagramEditingService.UpdateSelectedNodeLabel<NodeControl, Node>(
@@ -404,8 +642,14 @@ public partial class MainWindow : Window
         RefreshInspector();
     }
 
+    // =========================================================
+    // Direction globale
+    // =========================================================
     private void OnFlowDirectionChanged(object? sender, SelectionChangedEventArgs e)
     {
+        if (_suspendFlowDirectionHandling)
+            return;
+
         if (sender is not ComboBox combo)
             return;
 
@@ -420,22 +664,19 @@ public partial class MainWindow : Window
                 _ => DiagramFlowDirection.LR
             };
 
-            // Pendant l'init XAML, on ne touche pas encore au canvas / document
             if (!_uiReady)
                 return;
 
             foreach (var edge in _edges)
-            {
                 edge.DiagramDirection = _currentDiagramFlowDirection;
-            }
 
             SyncCurrentDocument();
         }
     }
 
-    // =============================
+    // =========================================================
     // Preview + commit du lien
-    // =============================
+    // =========================================================
     private void OnPortPreviewStarted(NodeControl source, Point startInWindow)
     {
         _previewSource = source;
@@ -529,9 +770,9 @@ public partial class MainWindow : Window
         RefreshInspector();
     }
 
-    // =============================
-    // Export Mermaid (R1.A + R2.B)
-    // =============================
+    // =========================================================
+    // Export Mermaid
+    // =========================================================
     private void OnExportMermaidClicked(object? sender, RoutedEventArgs e)
     {
         var textBox = GetMermaidOutputTextBox();
@@ -539,8 +780,6 @@ public partial class MainWindow : Window
         textBox.Text = _flowchartExportService.Export(exportModel);
     }
 
-    // ✅ R2.B : l’export lit maintenant le document courant,
-    // et non plus le canvas / les contrôles UI.
     private FlowchartExportModel BuildFlowchartExportModelFromDocument()
     {
         var document = _documentService.CurrentDocument;
@@ -594,11 +833,14 @@ public partial class MainWindow : Window
         return model;
     }
 
-    // =============================
-    // Suppression + Undo/Redo
-    // =============================
+    // =========================================================
+    // Undo / Redo / Delete
+    // =========================================================
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Handled)
+            return;
+
         if (e.Key == Key.Z && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             _history.Undo();
@@ -657,9 +899,9 @@ public partial class MainWindow : Window
         RefreshInspector();
     }
 
-    // =============================
-    // R2.A — Synchronisation du document courant
-    // =============================
+    // =========================================================
+    // Synchronisation du document courant
+    // =========================================================
     private void SyncCurrentDocument()
     {
         if (!_uiReady)
