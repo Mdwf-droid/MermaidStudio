@@ -5,16 +5,17 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using MermaidStudio.Application.Export;
 using MermaidStudio.Domain.Nodes;
 using MermaidStudio.UI.Avalonia.Controls;
 using MermaidStudio.UI.Avalonia.Editing;
-using System.Text;
 
 namespace MermaidStudio.UI.Avalonia.Views;
 
 public partial class MainWindow : Window
 {
     private readonly CommandHistory _history = new();
+    private readonly FlowchartExportService _flowchartExportService = new();
 
     private NodeControl? _selectedNode;
     private EdgeControl? _selectedEdge;
@@ -24,7 +25,7 @@ public partial class MainWindow : Window
 
     private readonly List<EdgeControl> _edges = new();
 
-    // ✅ S15 : source de vérité locale pour la direction globale
+    // S15 : source de vérité locale pour la direction globale
     private DiagramFlowDirection _currentDiagramFlowDirection = DiagramFlowDirection.LR;
 
     public MainWindow()
@@ -367,7 +368,6 @@ public partial class MainWindow : Window
         RefreshInspector();
     }
 
-    // ✅ S15 : lit directement le sender, plus de FindControl pendant l'init XAML
     private void OnFlowDirectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (sender is not ComboBox combo)
@@ -489,107 +489,77 @@ public partial class MainWindow : Window
     }
 
     // =============================
-    // Export Mermaid flowchart
+    // Export Mermaid (R1.A : logique extraite)
     // =============================
     private void OnExportMermaidClicked(object? sender, RoutedEventArgs e)
     {
         var textBox = GetMermaidOutputTextBox();
-        textBox.Text = BuildFlowchartMermaid();
+        var exportModel = BuildFlowchartExportModel();
+        textBox.Text = _flowchartExportService.Export(exportModel);
     }
 
-    private string BuildFlowchartMermaid()
+    private FlowchartExportModel BuildFlowchartExportModel()
     {
         var canvas = GetEditorCanvas();
 
-        var nodes = canvas.Children
-            .OfType<NodeControl>()
-            .Select(n => n.DataContext as Node)
-            .Where(n => n != null)
-            .Cast<Node>()
-            .OrderBy(n => n.Id.Value, StringComparer.Ordinal)
-            .ToList();
-
-        var direction = GetSelectedFlowDirection();
-
-        var sb = new StringBuilder();
-        sb.AppendLine($"flowchart {direction}");
-
-        foreach (var node in nodes)
+        var model = new FlowchartExportModel
         {
-            sb.AppendLine($"    {FormatNode(node)}");
+            Direction = _currentDiagramFlowDirection switch
+            {
+                DiagramFlowDirection.TB => FlowchartExportDiagramDirection.TB,
+                DiagramFlowDirection.RL => FlowchartExportDiagramDirection.RL,
+                DiagramFlowDirection.BT => FlowchartExportDiagramDirection.BT,
+                _ => FlowchartExportDiagramDirection.LR
+            }
+        };
+
+        foreach (var node in canvas.Children
+                     .OfType<NodeControl>()
+                     .Select(n => n.DataContext as Node)
+                     .Where(n => n != null)
+                     .Cast<Node>())
+        {
+            model.Nodes.Add(new FlowchartExportNode
+            {
+                Id = node.Id.Value,
+                Label = node.Label,
+                Style = node.VisualStyle switch
+                {
+                    NodeVisualStyle.Rounded => FlowchartExportNodeStyle.Rounded,
+                    NodeVisualStyle.Decision => FlowchartExportNodeStyle.Decision,
+                    NodeVisualStyle.Circle => FlowchartExportNodeStyle.Circle,
+                    _ => FlowchartExportNodeStyle.Rectangle
+                }
+            });
         }
 
-        foreach (var edge in _edges
-                     .OrderBy(e => GetExportSourceNode(e)?.Id.Value, StringComparer.Ordinal)
-                     .ThenBy(e => GetExportTargetNode(e)?.Id.Value, StringComparer.Ordinal))
+        foreach (var edge in _edges)
         {
-            var sourceNode = GetExportSourceNode(edge);
-            var targetNode = GetExportTargetNode(edge);
+            var sourceNode = edge.SourceNode.DataContext as Node;
+            var targetNode = edge.TargetNode.DataContext as Node;
 
             if (sourceNode == null || targetNode == null)
                 continue;
 
-            var arrowToken = edge.StyleKind switch
+            model.Edges.Add(new FlowchartExportEdge
             {
-                EdgeStyleKind.Dashed => "-.->",
-                EdgeStyleKind.Thick => "==>",
-                _ => "-->"
-            };
-
-            if (string.IsNullOrWhiteSpace(edge.Label))
-            {
-                sb.AppendLine($"    {sourceNode.Id.Value} {arrowToken} {targetNode.Id.Value}");
-            }
-            else
-            {
-                sb.AppendLine($"    {sourceNode.Id.Value} {arrowToken}|{Escape(edge.Label)}| {targetNode.Id.Value}");
-            }
+                SourceId = sourceNode.Id.Value,
+                TargetId = targetNode.Id.Value,
+                Label = edge.Label,
+                Style = edge.StyleKind switch
+                {
+                    EdgeStyleKind.Dashed => FlowchartExportEdgeStyle.Dashed,
+                    EdgeStyleKind.Thick => FlowchartExportEdgeStyle.Thick,
+                    _ => FlowchartExportEdgeStyle.Default
+                },
+                Direction = edge.Direction == EdgeDirection.Reverse
+                    ? FlowchartExportEdgeDirection.Reverse
+                    : FlowchartExportEdgeDirection.Forward
+            });
         }
 
-        return sb.ToString();
+        return model;
     }
-
-    private string FormatNode(Node node)
-    {
-        var id = node.Id.Value;
-        var label = Escape(node.Label);
-
-        return node.VisualStyle switch
-        {
-            NodeVisualStyle.Rounded => $"{id}(\"{label}\")",
-            NodeVisualStyle.Decision => $"{id}{{\"{label}\"}}",
-            NodeVisualStyle.Circle => $"{id}((\"{label}\"))",
-            _ => $"{id}[\"{label}\"]"
-        };
-    }
-
-    private Node? GetExportSourceNode(EdgeControl edge)
-    {
-        return edge.Direction == EdgeDirection.Forward
-            ? edge.SourceNode.DataContext as Node
-            : edge.TargetNode.DataContext as Node;
-    }
-
-    private Node? GetExportTargetNode(EdgeControl edge)
-    {
-        return edge.Direction == EdgeDirection.Forward
-            ? edge.TargetNode.DataContext as Node
-            : edge.SourceNode.DataContext as Node;
-    }
-
-    private string GetSelectedFlowDirection()
-    {
-        return _currentDiagramFlowDirection switch
-        {
-            DiagramFlowDirection.RL => "RL",
-            DiagramFlowDirection.TB => "TB",
-            DiagramFlowDirection.BT => "BT",
-            _ => "LR"
-        };
-    }
-
-    private static string Escape(string value)
-        => value.Replace("\"", "\\\"");
 
     // =============================
     // Suppression + Undo/Redo
