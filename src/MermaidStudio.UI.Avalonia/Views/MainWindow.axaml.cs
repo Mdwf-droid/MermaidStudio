@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using MermaidStudio.Application.Editing;
 using MermaidStudio.Application.Export;
 using MermaidStudio.Domain.Nodes;
 using MermaidStudio.UI.Avalonia.Controls;
@@ -17,8 +18,8 @@ public partial class MainWindow : Window
     private readonly CommandHistory _history = new();
     private readonly FlowchartExportService _flowchartExportService = new();
 
-    private NodeControl? _selectedNode;
-    private EdgeControl? _selectedEdge;
+    // ✅ R1.B : la sélection sort de MainWindow
+    private readonly SelectionService _selectionService = new();
 
     private NodeControl? _previewSource;
     private Line? _previewLine;
@@ -76,6 +77,20 @@ public partial class MainWindow : Window
     private TextBox GetMermaidOutputTextBox()
         => this.FindControl<TextBox>("MermaidOutputTextBox")
            ?? throw new InvalidOperationException("MermaidOutputTextBox introuvable dans MainWindow.");
+
+    private NodeControl? GetSelectedNode()
+    {
+        return _selectionService.Kind == SelectionKind.Node
+            ? _selectionService.GetSelected<NodeControl>()
+            : null;
+    }
+
+    private EdgeControl? GetSelectedEdge()
+    {
+        return _selectionService.Kind == SelectionKind.Edge
+            ? _selectionService.GetSelected<EdgeControl>()
+            : null;
+    }
 
     private void OnCanvasPressed(object? sender, PointerPressedEventArgs e)
     {
@@ -165,50 +180,56 @@ public partial class MainWindow : Window
 
     private void SetSelection(NodeControl node)
     {
-        if (_selectedNode == node)
+        var currentNode = GetSelectedNode();
+        if (ReferenceEquals(currentNode, node))
             return;
 
-        ClearSelection();
+        ClearSelectionVisualOnly();
 
-        _selectedNode = node;
-        _selectedNode.SetSelected(true);
+        _selectionService.SelectNode(node);
+        node.SetSelected(true);
 
         RefreshInspector();
     }
 
     private void SetSelection(EdgeControl edge)
     {
-        if (_selectedEdge == edge)
+        var currentEdge = GetSelectedEdge();
+        if (ReferenceEquals(currentEdge, edge))
             return;
 
-        ClearSelection();
+        ClearSelectionVisualOnly();
 
-        _selectedEdge = edge;
-        _selectedEdge.SetSelected(true);
+        _selectionService.SelectEdge(edge);
+        edge.SetSelected(true);
 
         RefreshInspector();
     }
 
+    private void ClearSelectionVisualOnly()
+    {
+        var selectedNode = GetSelectedNode();
+        if (selectedNode != null)
+            selectedNode.SetSelected(false);
+
+        var selectedEdge = GetSelectedEdge();
+        if (selectedEdge != null)
+            selectedEdge.SetSelected(false);
+    }
+
     private void ClearSelection()
     {
-        if (_selectedNode != null)
-        {
-            _selectedNode.SetSelected(false);
-            _selectedNode = null;
-        }
-
-        if (_selectedEdge != null)
-        {
-            _selectedEdge.SetSelected(false);
-            _selectedEdge = null;
-        }
-
+        ClearSelectionVisualOnly();
+        _selectionService.ClearSelection();
         RefreshInspector();
     }
 
     private void RefreshInspector()
     {
         var canvas = GetEditorCanvas();
+
+        var selectedNode = GetSelectedNode();
+        var selectedEdge = GetSelectedEdge();
 
         var nodeTextBox = GetSelectedNodeLabelTextBox();
         var nodeLabelButton = GetApplyNodeLabelButton();
@@ -222,8 +243,8 @@ public partial class MainWindow : Window
         var edgeStyleButton = GetApplyEdgeStyleButton();
 
         // Node sélectionné
-        if (_selectedNode?.DataContext is Node selectedNodeModel &&
-            canvas.Children.Contains(_selectedNode))
+        if (selectedNode?.DataContext is Node selectedNodeModel &&
+            canvas.Children.Contains(selectedNode))
         {
             nodeTextBox.IsEnabled = true;
             nodeLabelButton.IsEnabled = true;
@@ -250,22 +271,22 @@ public partial class MainWindow : Window
             nodeStyleButton.IsEnabled = false;
             nodeStyleCombo.SelectedIndex = 0;
 
-            if (_selectedNode != null && !canvas.Children.Contains(_selectedNode))
-                _selectedNode = null;
+            if (selectedNode != null && !canvas.Children.Contains(selectedNode))
+                _selectionService.ClearSelection();
         }
 
         // Edge sélectionné
-        if (_selectedEdge != null && canvas.Children.Contains(_selectedEdge))
+        if (selectedEdge != null && canvas.Children.Contains(selectedEdge))
         {
             edgeTextBox.IsEnabled = true;
             edgeLabelButton.IsEnabled = true;
-            edgeTextBox.Text = _selectedEdge.Label;
+            edgeTextBox.Text = selectedEdge.Label;
 
             edgeStyleCombo.IsEnabled = true;
             edgeDirectionCombo.IsEnabled = true;
             edgeStyleButton.IsEnabled = true;
 
-            edgeStyleCombo.SelectedIndex = _selectedEdge.StyleKind switch
+            edgeStyleCombo.SelectedIndex = selectedEdge.StyleKind switch
             {
                 EdgeStyleKind.Default => 0,
                 EdgeStyleKind.Dashed => 1,
@@ -273,7 +294,7 @@ public partial class MainWindow : Window
                 _ => 0
             };
 
-            edgeDirectionCombo.SelectedIndex = _selectedEdge.Direction switch
+            edgeDirectionCombo.SelectedIndex = selectedEdge.Direction switch
             {
                 EdgeDirection.Forward => 0,
                 EdgeDirection.Reverse => 1,
@@ -292,14 +313,16 @@ public partial class MainWindow : Window
             edgeStyleCombo.SelectedIndex = 0;
             edgeDirectionCombo.SelectedIndex = 0;
 
-            if (_selectedEdge != null && !canvas.Children.Contains(_selectedEdge))
-                _selectedEdge = null;
+            if (selectedEdge != null && !canvas.Children.Contains(selectedEdge))
+                _selectionService.ClearSelection();
         }
     }
 
     private void OnApplyNodeLabelClicked(object? sender, RoutedEventArgs e)
     {
-        if (_selectedNode?.DataContext is not Node selectedModel)
+        var selectedNode = GetSelectedNode();
+
+        if (selectedNode?.DataContext is not Node selectedModel)
             return;
 
         var textBox = GetSelectedNodeLabelTextBox();
@@ -316,7 +339,9 @@ public partial class MainWindow : Window
 
     private void OnApplyNodeStyleClicked(object? sender, RoutedEventArgs e)
     {
-        if (_selectedNode?.DataContext is not Node selectedModel)
+        var selectedNode = GetSelectedNode();
+
+        if (selectedNode?.DataContext is not Node selectedModel)
             return;
 
         var combo = GetSelectedNodeStyleComboBox();
@@ -334,32 +359,34 @@ public partial class MainWindow : Window
 
     private void OnApplyEdgeLabelClicked(object? sender, RoutedEventArgs e)
     {
-        if (_selectedEdge == null)
+        var selectedEdge = GetSelectedEdge();
+        if (selectedEdge == null)
             return;
 
         var textBox = GetSelectedEdgeLabelTextBox();
         var newLabel = textBox.Text?.Trim() ?? string.Empty;
 
-        _selectedEdge.Label = newLabel;
+        selectedEdge.Label = newLabel;
         RefreshInspector();
     }
 
     private void OnApplyEdgeStyleClicked(object? sender, RoutedEventArgs e)
     {
-        if (_selectedEdge == null)
+        var selectedEdge = GetSelectedEdge();
+        if (selectedEdge == null)
             return;
 
         var styleCombo = GetSelectedEdgeStyleComboBox();
         var directionCombo = GetSelectedEdgeDirectionComboBox();
 
-        _selectedEdge.StyleKind = styleCombo.SelectedIndex switch
+        selectedEdge.StyleKind = styleCombo.SelectedIndex switch
         {
             1 => EdgeStyleKind.Dashed,
             2 => EdgeStyleKind.Thick,
             _ => EdgeStyleKind.Default
         };
 
-        _selectedEdge.Direction = directionCombo.SelectedIndex switch
+        selectedEdge.Direction = directionCombo.SelectedIndex switch
         {
             1 => EdgeDirection.Reverse,
             _ => EdgeDirection.Forward
@@ -584,7 +611,7 @@ public partial class MainWindow : Window
 
         if (e.Key == Key.Delete || e.Key == Key.Back)
         {
-            if (_selectedEdge != null)
+            if (GetSelectedEdge() != null)
             {
                 DeleteSelectedEdge();
                 e.Handled = true;
@@ -598,29 +625,27 @@ public partial class MainWindow : Window
 
     private void DeleteSelectedNode()
     {
-        if (_selectedNode == null)
+        var selectedNode = GetSelectedNode();
+        if (selectedNode == null)
             return;
 
         var canvas = GetEditorCanvas();
-        var nodeToDelete = _selectedNode;
-
         ClearSelection();
 
-        _history.Execute(new DeleteNodeCommand(canvas, nodeToDelete, _edges));
+        _history.Execute(new DeleteNodeCommand(canvas, selectedNode, _edges));
         RefreshInspector();
     }
 
     private void DeleteSelectedEdge()
     {
-        if (_selectedEdge == null)
+        var selectedEdge = GetSelectedEdge();
+        if (selectedEdge == null)
             return;
 
         var canvas = GetEditorCanvas();
-        var edgeToDelete = _selectedEdge;
-
         ClearSelection();
 
-        _history.Execute(new DeleteEdgeCommand(canvas, _edges, edgeToDelete));
+        _history.Execute(new DeleteEdgeCommand(canvas, _edges, selectedEdge));
         RefreshInspector();
     }
 }
