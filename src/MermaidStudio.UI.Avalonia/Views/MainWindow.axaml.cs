@@ -18,12 +18,19 @@ using MermaidStudio.Domain.States;
 using MermaidStudio.UI.Avalonia.Controls;
 using MermaidStudio.UI.Avalonia.Editing;
 using System.IO;
+using System.Net;
 using DocumentFlowDirection = MermaidStudio.Domain.Diagrams.FlowDirection;
 
 namespace MermaidStudio.UI.Avalonia.Views;
 
 public partial class MainWindow : Window
 {
+    private enum MermaidImportKind
+    {
+        Flowchart,
+        StateDiagram
+    }
+
     private readonly CommandHistory _history = new();
     private readonly FlowchartExportService _flowchartExportService = new();
     private readonly StateDiagramExportService _stateDiagramExportService = new();
@@ -35,6 +42,7 @@ public partial class MainWindow : Window
 
     private readonly DiagramDocumentJsonService _jsonService = new();
     private readonly FlowchartMermaidImportService _mermaidImportService = new();
+    private readonly StateDiagramMermaidImportService _stateMermaidImportService = new();
 
     private NodeControl? _previewSource;
     private StateNodeControl? _previewStateSource;
@@ -286,7 +294,7 @@ public partial class MainWindow : Window
     }
 
     // =========================================================
-    // Import Mermaid (flowchart only in S17)
+    // Import Mermaid (flowchart + stateDiagram-v2)
     // =========================================================
     private async void OnImportMermaidClicked(object? sender, RoutedEventArgs e)
     {
@@ -298,13 +306,57 @@ public partial class MainWindow : Window
 
         try
         {
-            var document = _mermaidImportService.Import(mermaidText);
+            var importKind = DetectMermaidImportKind(mermaidText);
+
+            var document = importKind switch
+            {
+                MermaidImportKind.Flowchart => _mermaidImportService.Import(mermaidText),
+                MermaidImportKind.StateDiagram => _stateMermaidImportService.Import(mermaidText),
+                _ => throw new InvalidOperationException("Type Mermaid non supporté.")
+            };
+
             LoadDocumentIntoEditor(document);
         }
         catch (Exception ex)
         {
             GetMermaidOutputTextBox().Text = $"Import Mermaid failed: {ex.Message}";
         }
+    }
+
+    private static MermaidImportKind DetectMermaidImportKind(string mermaidText)
+    {
+        var decoded = WebUtility.HtmlDecode(mermaidText ?? string.Empty);
+
+        var lines = decoded
+            .Replace("\r\n", "\n")
+            .Replace('\r', '\n')
+            .Split('\n');
+
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.Trim();
+
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+
+            if (line == "```" || line.Equals("```mermaid", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (line.StartsWith("%%", StringComparison.Ordinal))
+                continue;
+
+            if (line.StartsWith("stateDiagram-v2", StringComparison.OrdinalIgnoreCase))
+                return MermaidImportKind.StateDiagram;
+
+            if (line.StartsWith("flowchart", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("graph", StringComparison.OrdinalIgnoreCase))
+                return MermaidImportKind.Flowchart;
+
+            break;
+        }
+
+        throw new InvalidOperationException(
+            "Le texte Mermaid doit commencer par 'flowchart'/'graph' ou 'stateDiagram-v2'.");
     }
 
     private void LoadDocumentIntoEditor(DiagramDocument document)
