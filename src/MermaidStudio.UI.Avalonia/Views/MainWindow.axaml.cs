@@ -18,8 +18,11 @@ public partial class MainWindow : Window
     private readonly CommandHistory _history = new();
     private readonly FlowchartExportService _flowchartExportService = new();
 
-    // ✅ R1.B : la sélection sort de MainWindow
+    // ✅ R1.B : source de vérité de la sélection
     private readonly SelectionService _selectionService = new();
+
+    // ✅ R1.C : orchestration des actions d’édition
+    private readonly DiagramEditingService _diagramEditingService;
 
     private NodeControl? _previewSource;
     private Line? _previewLine;
@@ -31,6 +34,7 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        _diagramEditingService = new DiagramEditingService(_selectionService);
         AvaloniaXamlLoader.Load(this);
     }
 
@@ -79,18 +83,14 @@ public partial class MainWindow : Window
            ?? throw new InvalidOperationException("MermaidOutputTextBox introuvable dans MainWindow.");
 
     private NodeControl? GetSelectedNode()
-    {
-        return _selectionService.Kind == SelectionKind.Node
+        => _selectionService.Kind == SelectionKind.Node
             ? _selectionService.GetSelected<NodeControl>()
             : null;
-    }
 
     private EdgeControl? GetSelectedEdge()
-    {
-        return _selectionService.Kind == SelectionKind.Edge
+        => _selectionService.Kind == SelectionKind.Edge
             ? _selectionService.GetSelected<EdgeControl>()
             : null;
-    }
 
     private void OnCanvasPressed(object? sender, PointerPressedEventArgs e)
     {
@@ -112,33 +112,38 @@ public partial class MainWindow : Window
 
         var posCanvas = e.GetPosition(canvas);
 
-        var nodeModel = new Node
-        {
-            Label = "Node",
-            X = posCanvas.X,
-            Y = posCanvas.Y,
-            VisualStyle = NodeVisualStyle.Rectangle
-        };
+        _diagramEditingService.CreateNode<Node, NodeControl>(
+            posCanvas.X,
+            posCanvas.Y,
+            (x, y) => new Node
+            {
+                Label = "Node",
+                X = x,
+                Y = y,
+                VisualStyle = NodeVisualStyle.Rectangle
+            },
+            model => new NodeControl
+            {
+                DataContext = model
+            },
+            newNode =>
+            {
+                newNode.AddHandler(
+                    PointerPressedEvent,
+                    OnNodePressed,
+                    RoutingStrategies.Bubble,
+                    handledEventsToo: true);
 
-        var newNode = new NodeControl
-        {
-            DataContext = nodeModel
-        };
+                newNode.PortPreviewStarted += OnPortPreviewStarted;
+                newNode.PortPreviewMoved += OnPortPreviewMoved;
+                newNode.PortPreviewEnded += OnPortPreviewEnded;
 
-        newNode.AddHandler(
-            PointerPressedEvent,
-            OnNodePressed,
-            RoutingStrategies.Bubble,
-            handledEventsToo: true);
+                Canvas.SetLeft(newNode, ((Node)newNode.DataContext!).X);
+                Canvas.SetTop(newNode, ((Node)newNode.DataContext!).Y);
+            },
+            newNode => _history.Execute(new CreateNodeCommand(canvas, newNode))
+        );
 
-        newNode.PortPreviewStarted += OnPortPreviewStarted;
-        newNode.PortPreviewMoved += OnPortPreviewMoved;
-        newNode.PortPreviewEnded += OnPortPreviewEnded;
-
-        Canvas.SetLeft(newNode, nodeModel.X);
-        Canvas.SetTop(newNode, nodeModel.Y);
-
-        _history.Execute(new CreateNodeCommand(canvas, newNode));
         RefreshInspector();
     }
 
@@ -320,33 +325,21 @@ public partial class MainWindow : Window
 
     private void OnApplyNodeLabelClicked(object? sender, RoutedEventArgs e)
     {
-        var selectedNode = GetSelectedNode();
+        _diagramEditingService.UpdateSelectedNodeLabel<NodeControl, Node>(
+            GetSelectedNodeLabelTextBox().Text,
+            control => control.DataContext as Node,
+            node => node.Label,
+            (node, newLabel) => _history.Execute(new UpdateNodeLabelCommand(node, node.Label, newLabel))
+        );
 
-        if (selectedNode?.DataContext is not Node selectedModel)
-            return;
-
-        var textBox = GetSelectedNodeLabelTextBox();
-        var newLabel = string.IsNullOrWhiteSpace(textBox.Text?.Trim())
-            ? "Node"
-            : textBox.Text!.Trim();
-
-        if (selectedModel.Label == newLabel)
-            return;
-
-        _history.Execute(new UpdateNodeLabelCommand(selectedModel, selectedModel.Label, newLabel));
         RefreshInspector();
     }
 
     private void OnApplyNodeStyleClicked(object? sender, RoutedEventArgs e)
     {
-        var selectedNode = GetSelectedNode();
-
-        if (selectedNode?.DataContext is not Node selectedModel)
-            return;
-
         var combo = GetSelectedNodeStyleComboBox();
 
-        selectedModel.VisualStyle = combo.SelectedIndex switch
+        var selectedStyle = combo.SelectedIndex switch
         {
             1 => NodeVisualStyle.Rounded,
             2 => NodeVisualStyle.Decision,
@@ -354,43 +347,51 @@ public partial class MainWindow : Window
             _ => NodeVisualStyle.Rectangle
         };
 
+        _diagramEditingService.UpdateSelectedNodeStyle<NodeControl, Node, NodeVisualStyle>(
+            selectedStyle,
+            control => control.DataContext as Node,
+            (node, style) => node.VisualStyle = style
+        );
+
         RefreshInspector();
     }
 
     private void OnApplyEdgeLabelClicked(object? sender, RoutedEventArgs e)
     {
-        var selectedEdge = GetSelectedEdge();
-        if (selectedEdge == null)
-            return;
+        _diagramEditingService.UpdateSelectedEdgeLabel<EdgeControl>(
+            GetSelectedEdgeLabelTextBox().Text,
+            (edge, newLabel) => edge.Label = newLabel
+        );
 
-        var textBox = GetSelectedEdgeLabelTextBox();
-        var newLabel = textBox.Text?.Trim() ?? string.Empty;
-
-        selectedEdge.Label = newLabel;
         RefreshInspector();
     }
 
     private void OnApplyEdgeStyleClicked(object? sender, RoutedEventArgs e)
     {
-        var selectedEdge = GetSelectedEdge();
-        if (selectedEdge == null)
-            return;
-
         var styleCombo = GetSelectedEdgeStyleComboBox();
         var directionCombo = GetSelectedEdgeDirectionComboBox();
 
-        selectedEdge.StyleKind = styleCombo.SelectedIndex switch
+        var style = styleCombo.SelectedIndex switch
         {
             1 => EdgeStyleKind.Dashed,
             2 => EdgeStyleKind.Thick,
             _ => EdgeStyleKind.Default
         };
 
-        selectedEdge.Direction = directionCombo.SelectedIndex switch
+        var direction = directionCombo.SelectedIndex switch
         {
             1 => EdgeDirection.Reverse,
             _ => EdgeDirection.Forward
         };
+
+        _diagramEditingService.UpdateSelectedEdgeStyle<EdgeControl, EdgeStyleKind, EdgeDirection>(
+            style,
+            direction,
+            (edge, styleValue, directionValue) =>
+            {
+                edge.StyleKind = styleValue;
+                edge.Direction = directionValue;
+            });
 
         RefreshInspector();
     }
@@ -488,35 +489,33 @@ public partial class MainWindow : Window
         canvas.Children.Remove(_previewLine);
         _previewLine = null;
 
-        if (targetNode != null)
-        {
-            var exists = _edges.Any(edge =>
-                ReferenceEquals(edge.SourceNode, _previewSource) &&
-                ReferenceEquals(edge.TargetNode, targetNode));
-
-            if (!exists)
+        _diagramEditingService.CreateEdge<NodeControl, EdgeControl>(
+            _previewSource,
+            targetNode,
+            (source, target) => _edges.Any(edge =>
+                ReferenceEquals(edge.SourceNode, source) &&
+                ReferenceEquals(edge.TargetNode, target)),
+            (source, target) => new EdgeControl(canvas, source, target)
             {
-                var edge = new EdgeControl(canvas, _previewSource, targetNode)
-                {
-                    DiagramDirection = _currentDiagramFlowDirection
-                };
-
+                DiagramDirection = _currentDiagramFlowDirection
+            },
+            edge =>
+            {
                 edge.AddHandler(
                     PointerPressedEvent,
                     OnEdgePressed,
                     RoutingStrategies.Bubble,
                     handledEventsToo: true);
-
-                _history.Execute(new CreateEdgeCommand(canvas, _edges, edge));
-            }
-        }
+            },
+            edge => _history.Execute(new CreateEdgeCommand(canvas, _edges, edge))
+        );
 
         _previewSource = null;
         RefreshInspector();
     }
 
     // =============================
-    // Export Mermaid (R1.A : logique extraite)
+    // Export Mermaid (R1.A)
     // =============================
     private void OnExportMermaidClicked(object? sender, RoutedEventArgs e)
     {
@@ -625,27 +624,25 @@ public partial class MainWindow : Window
 
     private void DeleteSelectedNode()
     {
-        var selectedNode = GetSelectedNode();
-        if (selectedNode == null)
-            return;
-
         var canvas = GetEditorCanvas();
-        ClearSelection();
 
-        _history.Execute(new DeleteNodeCommand(canvas, selectedNode, _edges));
+        _diagramEditingService.DeleteSelectedNode<NodeControl>(
+            beforeDelete: node => node.SetSelected(false),
+            executeDelete: node => _history.Execute(new DeleteNodeCommand(canvas, node, _edges))
+        );
+
         RefreshInspector();
     }
 
     private void DeleteSelectedEdge()
     {
-        var selectedEdge = GetSelectedEdge();
-        if (selectedEdge == null)
-            return;
-
         var canvas = GetEditorCanvas();
-        ClearSelection();
 
-        _history.Execute(new DeleteEdgeCommand(canvas, _edges, selectedEdge));
+        _diagramEditingService.DeleteSelectedEdge<EdgeControl>(
+            beforeDelete: edge => edge.SetSelected(false),
+            executeDelete: edge => _history.Execute(new DeleteEdgeCommand(canvas, _edges, edge))
+        );
+
         RefreshInspector();
     }
 }
