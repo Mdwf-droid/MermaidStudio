@@ -1,6 +1,7 @@
 ﻿using MermaidStudio.Domain.Core;
 using MermaidStudio.Domain.Edges;
 using MermaidStudio.Domain.Nodes;
+using MermaidStudio.Domain.States;
 using MermaidStudio.Domain.Styles;
 
 namespace MermaidStudio.Domain.Diagrams;
@@ -11,11 +12,14 @@ public sealed class DiagramDocument
 
     public DiagramKind Kind { get; set; } = DiagramKind.Flowchart;
 
-    // ✅ R2.A : direction réelle du diagramme courant
     public FlowDirection Direction { get; set; } = FlowDirection.LR;
 
     public IList<Node> Nodes { get; } = new List<Node>();
     public IList<Edge> Edges { get; } = new List<Edge>();
+
+    // S17 — state diagram
+    public IList<StateNode> StateNodes { get; } = new List<StateNode>();
+    public IList<StateTransition> StateTransitions { get; } = new List<StateTransition>();
 
     public StyleSet Styles { get; } = new();
 }

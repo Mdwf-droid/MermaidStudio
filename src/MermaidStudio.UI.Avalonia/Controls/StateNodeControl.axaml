@@ -1,0 +1,69 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="MermaidStudio.UI.Avalonia.Controls.StateNodeControl"
+             x:CompileBindings="False"
+             Width="150"
+             Height="60">
+
+	<Grid>
+		<!-- Normal -->
+		<Border x:Name="NormalBorder"
+                Background="#2D2D30"
+                BorderBrush="#6A6A6A"
+                BorderThickness="2"
+                CornerRadius="16"
+                IsVisible="True"/>
+
+		<!-- Start -->
+		<Ellipse x:Name="StartShape"
+                 Width="28"
+                 Height="28"
+                 Fill="#FFFFFF"
+                 Stroke="#FFFFFF"
+                 StrokeThickness="1"
+                 HorizontalAlignment="Center"
+                 VerticalAlignment="Center"
+                 IsVisible="False"/>
+
+		<!-- End -->
+		<Grid x:Name="EndShape"
+              Width="40"
+              Height="40"
+              HorizontalAlignment="Center"
+              VerticalAlignment="Center"
+              IsVisible="False">
+			<Ellipse Fill="Transparent"
+                     Stroke="#FFFFFF"
+                     StrokeThickness="2"/>
+			<Ellipse Width="24"
+                     Height="24"
+                     Fill="Transparent"
+                     Stroke="#FFFFFF"
+                     StrokeThickness="2"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center"/>
+		</Grid>
+
+		<TextBlock x:Name="LabelText"
+                   Text="{Binding Label}"
+                   Foreground="White"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   TextAlignment="Center"
+                   TextWrapping="Wrap"
+                   MaxWidth="170"
+                   Margin="12,10,12,10"/>
+
+		<Ellipse x:Name="RightPort"
+                 Width="8"
+                 Height="8"
+                 Fill="#AAAAAA"
+                 HorizontalAlignment="Right"
+                 VerticalAlignment="Center"
+                 Margin="0,0,-4,0"
+                 Cursor="Cross"
+                 PointerPressed="OnRightPortPressed"
+                 PointerMoved="OnRightPortMoved"
+                 PointerReleased="OnRightPortReleased"/>
+	</Grid>
+</UserControl>
