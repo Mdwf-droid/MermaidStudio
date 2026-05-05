@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:MermaidStudio.UI.Avalonia.Controls"
         x:Class="MermaidStudio.UI.Avalonia.Views.MainWindow"
         x:CompileBindings="False"
         Width="1500"
@@ -19,7 +20,7 @@
                 BorderThickness="0,0,0,1"
                 Padding="8">
 			<DockPanel>
-				<TextBlock Text="MermaidStudio — S17 State Diagram"
+				<TextBlock Text="MermaidStudio — R3.A Shell"
                            Foreground="White"
                            VerticalAlignment="Center"/>
 
@@ -78,116 +79,14 @@
 			</DockPanel>
 		</Border>
 
-		<!-- Canvas éditeur -->
-		<Canvas x:Name="EditorCanvas"
-                Grid.Row="1"
-                Grid.Column="0"
-                Background="#00000000"
-                PointerPressed="OnCanvasPressed"
-                PointerMoved="OnCanvasMoved"
-                PointerReleased="OnCanvasReleased"/>
+		<!-- Workspace -->
+		<controls:DiagramWorkspaceControl x:Name="WorkspaceControl"
+                                          Grid.Row="1"
+                                          Grid.Column="0"/>
 
-		<!-- Panneau droit -->
-		<Border Grid.Row="1"
-                Grid.Column="1"
-                Background="#1B1B1B"
-                BorderBrush="#333333"
-                BorderThickness="1,0,0,0"
-                Padding="8">
-			<Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,16,Auto,Auto,Auto,Auto,Auto,Auto,16,Auto,*">
-
-				<!-- Node / State -->
-				<TextBlock Text="Selected node/state label"
-                           Foreground="White"/>
-
-				<TextBox x:Name="SelectedNodeLabelTextBox"
-                         Grid.Row="1"
-                         Margin="0,8,0,0"
-                         IsEnabled="False"/>
-
-				<Button x:Name="ApplyNodeLabelButton"
-                        Grid.Row="2"
-                        Margin="0,8,0,0"
-                        Content="Apply Label"
-                        IsEnabled="False"
-                        Click="OnApplyNodeLabelClicked"/>
-
-				<ComboBox x:Name="SelectedNodeStyleComboBox"
-                          Grid.Row="3"
-                          Margin="0,8,0,0"
-                          IsEnabled="False"
-                          SelectedIndex="0">
-					<ComboBoxItem Content="Rectangle" />
-					<ComboBoxItem Content="Rounded" />
-					<ComboBoxItem Content="Decision" />
-					<ComboBoxItem Content="Circle" />
-				</ComboBox>
-
-				<Button x:Name="ApplyNodeStyleButton"
-                        Grid.Row="4"
-                        Margin="0,8,0,0"
-                        Content="Apply Node Style"
-                        IsEnabled="False"
-                        Click="OnApplyNodeStyleClicked"/>
-
-				<!-- Edge / Transition -->
-				<TextBlock Grid.Row="6"
-                           Text="Selected edge/transition label"
-                           Foreground="White"/>
-
-				<TextBox x:Name="SelectedEdgeLabelTextBox"
-                         Grid.Row="7"
-                         Margin="0,8,0,0"
-                         IsEnabled="False"/>
-
-				<Button x:Name="ApplyEdgeLabelButton"
-                        Grid.Row="8"
-                        Margin="0,8,0,0"
-                        Content="Apply Edge Label"
-                        IsEnabled="False"
-                        Click="OnApplyEdgeLabelClicked"/>
-
-				<ComboBox x:Name="SelectedEdgeStyleComboBox"
-                          Grid.Row="9"
-                          Margin="0,8,0,0"
-                          IsEnabled="False"
-                          SelectedIndex="0">
-					<ComboBoxItem Content="Default" />
-					<ComboBoxItem Content="Dashed" />
-					<ComboBoxItem Content="Thick" />
-				</ComboBox>
-
-				<ComboBox x:Name="SelectedEdgeDirectionComboBox"
-                          Grid.Row="10"
-                          Margin="0,8,0,0"
-                          IsEnabled="False"
-                          SelectedIndex="0">
-					<ComboBoxItem Content="Forward" />
-					<ComboBoxItem Content="Reverse" />
-				</ComboBox>
-
-				<Button x:Name="ApplyEdgeStyleButton"
-                        Grid.Row="11"
-                        Margin="0,8,0,0"
-                        Content="Apply Edge Style"
-                        IsEnabled="False"
-                        Click="OnApplyEdgeStyleClicked"/>
-
-				<!-- Mermaid output -->
-				<TextBlock Grid.Row="13"
-                           Text="Mermaid output"
-                           Foreground="White"/>
-
-				<TextBox x:Name="MermaidOutputTextBox"
-                         Grid.Row="14"
-                         Margin="0,8,0,0"
-                         AcceptsReturn="True"
-                         IsReadOnly="True"
-                         TextWrapping="Wrap"
-                         FontFamily="Consolas"
-                         ScrollViewer.VerticalScrollBarVisibility="Auto"
-                         ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
-			</Grid>
-		</Border>
+		<!-- Inspector -->
+		<controls:InspectorPaneControl x:Name="InspectorPane"
+                                       Grid.Row="1"
+                                       Grid.Column="1"/>
 	</Grid>
 </Window>
