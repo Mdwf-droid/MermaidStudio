@@ -1,52 +1,61 @@
-﻿namespace MermaidStudio.Application.Editing;
+﻿using MermaidStudio.Domain.Edges;
+using MermaidStudio.Domain.Nodes;
+
+namespace MermaidStudio.Application.Editing;
 
 public sealed class InspectorStateService
 {
     private readonly SelectionService _selectionService;
+    private readonly DiagramDocumentService _documentService;
 
-    public InspectorStateService(SelectionService selectionService)
+    public InspectorStateService(
+        SelectionService selectionService,
+        DiagramDocumentService documentService)
     {
         _selectionService = selectionService;
+        _documentService = documentService;
     }
 
-    public InspectorState BuildState<TNodeControl, TNodeModel, TEdgeControl>(
+    public InspectorState BuildState<TNodeControl, TEdgeControl>(
         Func<TNodeControl, bool> isNodeActive,
-        Func<TNodeControl, TNodeModel?> nodeModelSelector,
-        Func<TNodeModel, string> nodeLabelSelector,
-        Func<TNodeModel, int> nodeStyleIndexSelector,
+        Func<TNodeControl, string?> resolveNodeId,
         Func<TEdgeControl, bool> isEdgeActive,
-        Func<TEdgeControl, string> edgeLabelSelector,
-        Func<TEdgeControl, int> edgeStyleIndexSelector,
-        Func<TEdgeControl, int> edgeDirectionIndexSelector)
+        Func<TEdgeControl, (string SourceNodeId, string TargetNodeId)?> resolveEdgeEndpoints)
         where TNodeControl : class
-        where TNodeModel : class
         where TEdgeControl : class
     {
+        var document = _documentService.CurrentDocument;
+
         if (_selectionService.Kind == SelectionKind.Node)
         {
-            var selectedNode = _selectionService.GetSelected<TNodeControl>();
+            var selectedNodeControl = _selectionService.GetSelected<TNodeControl>();
 
-            if (selectedNode == null)
-            {
+            if (selectedNodeControl == null)
                 return CreateEmpty(clearSelectionRequested: true);
-            }
 
-            if (!isNodeActive(selectedNode))
-            {
+            if (!isNodeActive(selectedNodeControl))
                 return CreateEmpty(clearSelectionRequested: true);
-            }
 
-            var model = nodeModelSelector(selectedNode);
-            if (model == null)
-            {
+            var nodeId = resolveNodeId(selectedNodeControl);
+            if (string.IsNullOrWhiteSpace(nodeId))
                 return CreateEmpty(clearSelectionRequested: true);
-            }
+
+            var node = document.Nodes.FirstOrDefault(n => n.Id.Value == nodeId);
+            if (node == null)
+                return CreateEmpty(clearSelectionRequested: true);
 
             return new InspectorState
             {
                 NodeSectionEnabled = true,
-                NodeLabel = nodeLabelSelector(model),
-                NodeStyleIndex = nodeStyleIndexSelector(model),
+                NodeLabel = node.Label,
+                NodeStyleIndex = node.VisualStyle switch
+                {
+                    NodeVisualStyle.Rectangle => 0,
+                    NodeVisualStyle.Rounded => 1,
+                    NodeVisualStyle.Decision => 2,
+                    NodeVisualStyle.Circle => 3,
+                    _ => 0
+                },
 
                 EdgeSectionEnabled = false,
                 EdgeLabel = string.Empty,
@@ -57,17 +66,24 @@ public sealed class InspectorStateService
 
         if (_selectionService.Kind == SelectionKind.Edge)
         {
-            var selectedEdge = _selectionService.GetSelected<TEdgeControl>();
+            var selectedEdgeControl = _selectionService.GetSelected<TEdgeControl>();
 
-            if (selectedEdge == null)
-            {
+            if (selectedEdgeControl == null)
                 return CreateEmpty(clearSelectionRequested: true);
-            }
 
-            if (!isEdgeActive(selectedEdge))
-            {
+            if (!isEdgeActive(selectedEdgeControl))
                 return CreateEmpty(clearSelectionRequested: true);
-            }
+
+            var endpoints = resolveEdgeEndpoints(selectedEdgeControl);
+            if (endpoints == null)
+                return CreateEmpty(clearSelectionRequested: true);
+
+            var edge = document.Edges.FirstOrDefault(e =>
+                e.SourceNodeId.Value == endpoints.Value.SourceNodeId &&
+                e.TargetNodeId.Value == endpoints.Value.TargetNodeId);
+
+            if (edge == null)
+                return CreateEmpty(clearSelectionRequested: true);
 
             return new InspectorState
             {
@@ -76,9 +92,18 @@ public sealed class InspectorStateService
                 NodeStyleIndex = 0,
 
                 EdgeSectionEnabled = true,
-                EdgeLabel = edgeLabelSelector(selectedEdge),
-                EdgeStyleIndex = edgeStyleIndexSelector(selectedEdge),
-                EdgeDirectionIndex = edgeDirectionIndexSelector(selectedEdge)
+                EdgeLabel = edge.Label ?? string.Empty,
+                EdgeStyleIndex = edge.Kind switch
+                {
+                    EdgeKind.Dashed => 1,
+                    EdgeKind.Thick => 2,
+                    _ => 0
+                },
+                EdgeDirectionIndex = edge.Direction switch
+                {
+                    DocumentEdgeDirection.Reverse => 1,
+                    _ => 0
+                }
             };
         }
 

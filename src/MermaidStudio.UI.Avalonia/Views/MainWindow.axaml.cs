@@ -26,7 +26,7 @@ public partial class MainWindow : Window
     // ✅ R1.C : orchestration des actions d’édition
     private readonly DiagramEditingService _diagramEditingService;
 
-    // ✅ R1.D : état de l’inspecteur
+    // ✅ R1.D + R2.C : état de l’inspecteur, maintenant lu depuis le document
     private readonly InspectorStateService _inspectorStateService;
 
     // ✅ R2.A : document courant réel, tenu à jour en parallèle
@@ -46,7 +46,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         _diagramEditingService = new DiagramEditingService(_selectionService);
-        _inspectorStateService = new InspectorStateService(_selectionService);
+        _inspectorStateService = new InspectorStateService(_selectionService, _documentService);
 
         _uiReady = false;
         AvaloniaXamlLoader.Load(this);
@@ -255,64 +255,38 @@ public partial class MainWindow : Window
 
         var canvas = GetEditorCanvas();
 
-        var state = _inspectorStateService.BuildState<NodeControl, Node, EdgeControl>(
+        var state = _inspectorStateService.BuildState<NodeControl, EdgeControl>(
             isNodeActive: node => canvas.Children.Contains(node),
-            nodeModelSelector: node => node.DataContext as Node,
-            nodeLabelSelector: node => node.Label,
-            nodeStyleIndexSelector: node => node.VisualStyle switch
-            {
-                NodeVisualStyle.Rectangle => 0,
-                NodeVisualStyle.Rounded => 1,
-                NodeVisualStyle.Decision => 2,
-                NodeVisualStyle.Circle => 3,
-                _ => 0
-            },
+            resolveNodeId: node => (node.DataContext as Node)?.Id.Value,
             isEdgeActive: edge => canvas.Children.Contains(edge),
-            edgeLabelSelector: edge => edge.Label,
-            edgeStyleIndexSelector: edge => edge.StyleKind switch
+            resolveEdgeEndpoints: edge =>
             {
-                EdgeStyleKind.Default => 0,
-                EdgeStyleKind.Dashed => 1,
-                EdgeStyleKind.Thick => 2,
-                _ => 0
-            },
-            edgeDirectionIndexSelector: edge => edge.Direction switch
-            {
-                EdgeDirection.Forward => 0,
-                EdgeDirection.Reverse => 1,
-                _ => 0
+                var sourceNode = edge.SourceNode.DataContext as Node;
+                var targetNode = edge.TargetNode.DataContext as Node;
+
+                if (sourceNode == null || targetNode == null)
+                    return null;
+
+                return (sourceNode.Id.Value, targetNode.Id.Value);
             });
 
         if (state.ClearSelectionRequested)
         {
             _selectionService.ClearSelection();
 
-            state = _inspectorStateService.BuildState<NodeControl, Node, EdgeControl>(
+            state = _inspectorStateService.BuildState<NodeControl, EdgeControl>(
                 isNodeActive: node => canvas.Children.Contains(node),
-                nodeModelSelector: node => node.DataContext as Node,
-                nodeLabelSelector: node => node.Label,
-                nodeStyleIndexSelector: node => node.VisualStyle switch
-                {
-                    NodeVisualStyle.Rectangle => 0,
-                    NodeVisualStyle.Rounded => 1,
-                    NodeVisualStyle.Decision => 2,
-                    NodeVisualStyle.Circle => 3,
-                    _ => 0
-                },
+                resolveNodeId: node => (node.DataContext as Node)?.Id.Value,
                 isEdgeActive: edge => canvas.Children.Contains(edge),
-                edgeLabelSelector: edge => edge.Label,
-                edgeStyleIndexSelector: edge => edge.StyleKind switch
+                resolveEdgeEndpoints: edge =>
                 {
-                    EdgeStyleKind.Default => 0,
-                    EdgeStyleKind.Dashed => 1,
-                    EdgeStyleKind.Thick => 2,
-                    _ => 0
-                },
-                edgeDirectionIndexSelector: edge => edge.Direction switch
-                {
-                    EdgeDirection.Forward => 0,
-                    EdgeDirection.Reverse => 1,
-                    _ => 0
+                    var sourceNode = edge.SourceNode.DataContext as Node;
+                    var targetNode = edge.TargetNode.DataContext as Node;
+
+                    if (sourceNode == null || targetNode == null)
+                        return null;
+
+                    return (sourceNode.Id.Value, targetNode.Id.Value);
                 });
         }
 
