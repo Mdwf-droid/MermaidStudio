@@ -1,9 +1,12 @@
-namespace MermaidStudio.Domain.Edges;
+﻿namespace MermaidStudio.Domain.Edges;
 
 public enum EdgeKind
 {
     Default,
     Dashed,
     Dotted,
-    Labeled
+    Labeled,
+
+    // ✅ R2.A : le document doit pouvoir porter le style déjà utilisé par l’UI
+    Thick
 }

@@ -7,9 +7,11 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using MermaidStudio.Application.Editing;
 using MermaidStudio.Application.Export;
+using MermaidStudio.Domain.Edges;
 using MermaidStudio.Domain.Nodes;
 using MermaidStudio.UI.Avalonia.Controls;
 using MermaidStudio.UI.Avalonia.Editing;
+using DocumentFlowDirection = MermaidStudio.Domain.Diagrams.FlowDirection;
 
 namespace MermaidStudio.UI.Avalonia.Views;
 
@@ -24,6 +26,12 @@ public partial class MainWindow : Window
     // ✅ R1.C : orchestration des actions d’édition
     private readonly DiagramEditingService _diagramEditingService;
 
+    // ✅ R1.D : état de l’inspecteur
+    private readonly InspectorStateService _inspectorStateService;
+
+    // ✅ R2.A : document courant réel, tenu à jour en parallèle
+    private readonly DiagramDocumentService _documentService = new();
+
     private NodeControl? _previewSource;
     private Line? _previewLine;
 
@@ -32,10 +40,20 @@ public partial class MainWindow : Window
     // S15 : source de vérité locale pour la direction globale
     private DiagramFlowDirection _currentDiagramFlowDirection = DiagramFlowDirection.LR;
 
+    // ✅ garde-fou pour éviter les accès trop tôt pendant l'initialisation XAML
+    private bool _uiReady;
+
     public MainWindow()
     {
         _diagramEditingService = new DiagramEditingService(_selectionService);
+        _inspectorStateService = new InspectorStateService(_selectionService);
+
+        _uiReady = false;
         AvaloniaXamlLoader.Load(this);
+        _uiReady = true;
+
+        // Document initial vide
+        SyncCurrentDocument();
     }
 
     private Canvas GetEditorCanvas()
@@ -144,6 +162,7 @@ public partial class MainWindow : Window
             newNode => _history.Execute(new CreateNodeCommand(canvas, newNode))
         );
 
+        SyncCurrentDocument();
         RefreshInspector();
     }
 
@@ -231,11 +250,77 @@ public partial class MainWindow : Window
 
     private void RefreshInspector()
     {
+        if (!_uiReady)
+            return;
+
         var canvas = GetEditorCanvas();
 
-        var selectedNode = GetSelectedNode();
-        var selectedEdge = GetSelectedEdge();
+        var state = _inspectorStateService.BuildState<NodeControl, Node, EdgeControl>(
+            isNodeActive: node => canvas.Children.Contains(node),
+            nodeModelSelector: node => node.DataContext as Node,
+            nodeLabelSelector: node => node.Label,
+            nodeStyleIndexSelector: node => node.VisualStyle switch
+            {
+                NodeVisualStyle.Rectangle => 0,
+                NodeVisualStyle.Rounded => 1,
+                NodeVisualStyle.Decision => 2,
+                NodeVisualStyle.Circle => 3,
+                _ => 0
+            },
+            isEdgeActive: edge => canvas.Children.Contains(edge),
+            edgeLabelSelector: edge => edge.Label,
+            edgeStyleIndexSelector: edge => edge.StyleKind switch
+            {
+                EdgeStyleKind.Default => 0,
+                EdgeStyleKind.Dashed => 1,
+                EdgeStyleKind.Thick => 2,
+                _ => 0
+            },
+            edgeDirectionIndexSelector: edge => edge.Direction switch
+            {
+                EdgeDirection.Forward => 0,
+                EdgeDirection.Reverse => 1,
+                _ => 0
+            });
 
+        if (state.ClearSelectionRequested)
+        {
+            _selectionService.ClearSelection();
+
+            state = _inspectorStateService.BuildState<NodeControl, Node, EdgeControl>(
+                isNodeActive: node => canvas.Children.Contains(node),
+                nodeModelSelector: node => node.DataContext as Node,
+                nodeLabelSelector: node => node.Label,
+                nodeStyleIndexSelector: node => node.VisualStyle switch
+                {
+                    NodeVisualStyle.Rectangle => 0,
+                    NodeVisualStyle.Rounded => 1,
+                    NodeVisualStyle.Decision => 2,
+                    NodeVisualStyle.Circle => 3,
+                    _ => 0
+                },
+                isEdgeActive: edge => canvas.Children.Contains(edge),
+                edgeLabelSelector: edge => edge.Label,
+                edgeStyleIndexSelector: edge => edge.StyleKind switch
+                {
+                    EdgeStyleKind.Default => 0,
+                    EdgeStyleKind.Dashed => 1,
+                    EdgeStyleKind.Thick => 2,
+                    _ => 0
+                },
+                edgeDirectionIndexSelector: edge => edge.Direction switch
+                {
+                    EdgeDirection.Forward => 0,
+                    EdgeDirection.Reverse => 1,
+                    _ => 0
+                });
+        }
+
+        ApplyInspectorState(state);
+    }
+
+    private void ApplyInspectorState(InspectorState state)
+    {
         var nodeTextBox = GetSelectedNodeLabelTextBox();
         var nodeLabelButton = GetApplyNodeLabelButton();
         var nodeStyleCombo = GetSelectedNodeStyleComboBox();
@@ -247,80 +332,25 @@ public partial class MainWindow : Window
         var edgeDirectionCombo = GetSelectedEdgeDirectionComboBox();
         var edgeStyleButton = GetApplyEdgeStyleButton();
 
-        // Node sélectionné
-        if (selectedNode?.DataContext is Node selectedNodeModel &&
-            canvas.Children.Contains(selectedNode))
-        {
-            nodeTextBox.IsEnabled = true;
-            nodeLabelButton.IsEnabled = true;
-            nodeTextBox.Text = selectedNodeModel.Label;
+        // Section node
+        nodeTextBox.IsEnabled = state.NodeSectionEnabled;
+        nodeLabelButton.IsEnabled = state.NodeSectionEnabled;
+        nodeStyleCombo.IsEnabled = state.NodeSectionEnabled;
+        nodeStyleButton.IsEnabled = state.NodeSectionEnabled;
 
-            nodeStyleCombo.IsEnabled = true;
-            nodeStyleButton.IsEnabled = true;
-            nodeStyleCombo.SelectedIndex = selectedNodeModel.VisualStyle switch
-            {
-                NodeVisualStyle.Rectangle => 0,
-                NodeVisualStyle.Rounded => 1,
-                NodeVisualStyle.Decision => 2,
-                NodeVisualStyle.Circle => 3,
-                _ => 0
-            };
-        }
-        else
-        {
-            nodeTextBox.IsEnabled = false;
-            nodeLabelButton.IsEnabled = false;
-            nodeTextBox.Text = string.Empty;
+        nodeTextBox.Text = state.NodeLabel;
+        nodeStyleCombo.SelectedIndex = state.NodeStyleIndex;
 
-            nodeStyleCombo.IsEnabled = false;
-            nodeStyleButton.IsEnabled = false;
-            nodeStyleCombo.SelectedIndex = 0;
+        // Section edge
+        edgeTextBox.IsEnabled = state.EdgeSectionEnabled;
+        edgeLabelButton.IsEnabled = state.EdgeSectionEnabled;
+        edgeStyleCombo.IsEnabled = state.EdgeSectionEnabled;
+        edgeDirectionCombo.IsEnabled = state.EdgeSectionEnabled;
+        edgeStyleButton.IsEnabled = state.EdgeSectionEnabled;
 
-            if (selectedNode != null && !canvas.Children.Contains(selectedNode))
-                _selectionService.ClearSelection();
-        }
-
-        // Edge sélectionné
-        if (selectedEdge != null && canvas.Children.Contains(selectedEdge))
-        {
-            edgeTextBox.IsEnabled = true;
-            edgeLabelButton.IsEnabled = true;
-            edgeTextBox.Text = selectedEdge.Label;
-
-            edgeStyleCombo.IsEnabled = true;
-            edgeDirectionCombo.IsEnabled = true;
-            edgeStyleButton.IsEnabled = true;
-
-            edgeStyleCombo.SelectedIndex = selectedEdge.StyleKind switch
-            {
-                EdgeStyleKind.Default => 0,
-                EdgeStyleKind.Dashed => 1,
-                EdgeStyleKind.Thick => 2,
-                _ => 0
-            };
-
-            edgeDirectionCombo.SelectedIndex = selectedEdge.Direction switch
-            {
-                EdgeDirection.Forward => 0,
-                EdgeDirection.Reverse => 1,
-                _ => 0
-            };
-        }
-        else
-        {
-            edgeTextBox.IsEnabled = false;
-            edgeLabelButton.IsEnabled = false;
-            edgeTextBox.Text = string.Empty;
-
-            edgeStyleCombo.IsEnabled = false;
-            edgeDirectionCombo.IsEnabled = false;
-            edgeStyleButton.IsEnabled = false;
-            edgeStyleCombo.SelectedIndex = 0;
-            edgeDirectionCombo.SelectedIndex = 0;
-
-            if (selectedEdge != null && !canvas.Children.Contains(selectedEdge))
-                _selectionService.ClearSelection();
-        }
+        edgeTextBox.Text = state.EdgeLabel;
+        edgeStyleCombo.SelectedIndex = state.EdgeStyleIndex;
+        edgeDirectionCombo.SelectedIndex = state.EdgeDirectionIndex;
     }
 
     private void OnApplyNodeLabelClicked(object? sender, RoutedEventArgs e)
@@ -332,6 +362,7 @@ public partial class MainWindow : Window
             (node, newLabel) => _history.Execute(new UpdateNodeLabelCommand(node, node.Label, newLabel))
         );
 
+        SyncCurrentDocument();
         RefreshInspector();
     }
 
@@ -353,6 +384,7 @@ public partial class MainWindow : Window
             (node, style) => node.VisualStyle = style
         );
 
+        SyncCurrentDocument();
         RefreshInspector();
     }
 
@@ -363,6 +395,7 @@ public partial class MainWindow : Window
             (edge, newLabel) => edge.Label = newLabel
         );
 
+        SyncCurrentDocument();
         RefreshInspector();
     }
 
@@ -393,6 +426,7 @@ public partial class MainWindow : Window
                 edge.Direction = directionValue;
             });
 
+        SyncCurrentDocument();
         RefreshInspector();
     }
 
@@ -412,10 +446,16 @@ public partial class MainWindow : Window
                 _ => DiagramFlowDirection.LR
             };
 
+            // Pendant l'init XAML, on ne touche pas encore au canvas / document
+            if (!_uiReady)
+                return;
+
             foreach (var edge in _edges)
             {
                 edge.DiagramDirection = _currentDiagramFlowDirection;
             }
+
+            SyncCurrentDocument();
         }
     }
 
@@ -511,39 +551,38 @@ public partial class MainWindow : Window
         );
 
         _previewSource = null;
+        SyncCurrentDocument();
         RefreshInspector();
     }
 
     // =============================
-    // Export Mermaid (R1.A)
+    // Export Mermaid (R1.A + R2.B)
     // =============================
     private void OnExportMermaidClicked(object? sender, RoutedEventArgs e)
     {
         var textBox = GetMermaidOutputTextBox();
-        var exportModel = BuildFlowchartExportModel();
+        var exportModel = BuildFlowchartExportModelFromDocument();
         textBox.Text = _flowchartExportService.Export(exportModel);
     }
 
-    private FlowchartExportModel BuildFlowchartExportModel()
+    // ✅ R2.B : l’export lit maintenant le document courant,
+    // et non plus le canvas / les contrôles UI.
+    private FlowchartExportModel BuildFlowchartExportModelFromDocument()
     {
-        var canvas = GetEditorCanvas();
+        var document = _documentService.CurrentDocument;
 
         var model = new FlowchartExportModel
         {
-            Direction = _currentDiagramFlowDirection switch
+            Direction = document.Direction switch
             {
-                DiagramFlowDirection.TB => FlowchartExportDiagramDirection.TB,
-                DiagramFlowDirection.RL => FlowchartExportDiagramDirection.RL,
-                DiagramFlowDirection.BT => FlowchartExportDiagramDirection.BT,
+                DocumentFlowDirection.TB => FlowchartExportDiagramDirection.TB,
+                DocumentFlowDirection.RL => FlowchartExportDiagramDirection.RL,
+                DocumentFlowDirection.BT => FlowchartExportDiagramDirection.BT,
                 _ => FlowchartExportDiagramDirection.LR
             }
         };
 
-        foreach (var node in canvas.Children
-                     .OfType<NodeControl>()
-                     .Select(n => n.DataContext as Node)
-                     .Where(n => n != null)
-                     .Cast<Node>())
+        foreach (var node in document.Nodes)
         {
             model.Nodes.Add(new FlowchartExportNode
             {
@@ -559,26 +598,20 @@ public partial class MainWindow : Window
             });
         }
 
-        foreach (var edge in _edges)
+        foreach (var edge in document.Edges)
         {
-            var sourceNode = edge.SourceNode.DataContext as Node;
-            var targetNode = edge.TargetNode.DataContext as Node;
-
-            if (sourceNode == null || targetNode == null)
-                continue;
-
             model.Edges.Add(new FlowchartExportEdge
             {
-                SourceId = sourceNode.Id.Value,
-                TargetId = targetNode.Id.Value,
-                Label = edge.Label,
-                Style = edge.StyleKind switch
+                SourceId = edge.SourceNodeId.Value,
+                TargetId = edge.TargetNodeId.Value,
+                Label = edge.Label ?? string.Empty,
+                Style = edge.Kind switch
                 {
-                    EdgeStyleKind.Dashed => FlowchartExportEdgeStyle.Dashed,
-                    EdgeStyleKind.Thick => FlowchartExportEdgeStyle.Thick,
+                    EdgeKind.Dashed => FlowchartExportEdgeStyle.Dashed,
+                    EdgeKind.Thick => FlowchartExportEdgeStyle.Thick,
                     _ => FlowchartExportEdgeStyle.Default
                 },
-                Direction = edge.Direction == EdgeDirection.Reverse
+                Direction = edge.Direction == DocumentEdgeDirection.Reverse
                     ? FlowchartExportEdgeDirection.Reverse
                     : FlowchartExportEdgeDirection.Forward
             });
@@ -595,6 +628,7 @@ public partial class MainWindow : Window
         if (e.Key == Key.Z && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             _history.Undo();
+            SyncCurrentDocument();
             RefreshInspector();
             e.Handled = true;
             return;
@@ -603,6 +637,7 @@ public partial class MainWindow : Window
         if (e.Key == Key.Y && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             _history.Redo();
+            SyncCurrentDocument();
             RefreshInspector();
             e.Handled = true;
             return;
@@ -631,6 +666,7 @@ public partial class MainWindow : Window
             executeDelete: node => _history.Execute(new DeleteNodeCommand(canvas, node, _edges))
         );
 
+        SyncCurrentDocument();
         RefreshInspector();
     }
 
@@ -643,6 +679,64 @@ public partial class MainWindow : Window
             executeDelete: edge => _history.Execute(new DeleteEdgeCommand(canvas, _edges, edge))
         );
 
+        SyncCurrentDocument();
         RefreshInspector();
+    }
+
+    // =============================
+    // R2.A — Synchronisation du document courant
+    // =============================
+    private void SyncCurrentDocument()
+    {
+        if (!_uiReady)
+            return;
+
+        var canvas = GetEditorCanvas();
+
+        var nodes = canvas.Children
+            .OfType<NodeControl>()
+            .Select(n => n.DataContext as Node)
+            .Where(n => n != null)
+            .Cast<Node>()
+            .ToList();
+
+        var edgeStates = _edges
+            .Select(edge =>
+            {
+                var sourceNode = edge.SourceNode.DataContext as Node;
+                var targetNode = edge.TargetNode.DataContext as Node;
+
+                if (sourceNode == null || targetNode == null)
+                    return null;
+
+                return new DiagramDocumentEdgeState
+                {
+                    SourceNodeId = sourceNode.Id,
+                    TargetNodeId = targetNode.Id,
+                    Label = edge.Label,
+                    Kind = edge.StyleKind switch
+                    {
+                        EdgeStyleKind.Dashed => EdgeKind.Dashed,
+                        EdgeStyleKind.Thick => EdgeKind.Thick,
+                        _ => EdgeKind.Default
+                    },
+                    Direction = edge.Direction == EdgeDirection.Reverse
+                        ? DocumentEdgeDirection.Reverse
+                        : DocumentEdgeDirection.Forward
+                };
+            })
+            .Where(e => e != null)
+            .Cast<DiagramDocumentEdgeState>()
+            .ToList();
+
+        var direction = _currentDiagramFlowDirection switch
+        {
+            DiagramFlowDirection.TB => DocumentFlowDirection.TB,
+            DiagramFlowDirection.RL => DocumentFlowDirection.RL,
+            DiagramFlowDirection.BT => DocumentFlowDirection.BT,
+            _ => DocumentFlowDirection.LR
+        };
+
+        _documentService.Synchronize(direction, nodes, edgeStates);
     }
 }
