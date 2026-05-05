@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using MermaidStudio.Application.Editing;
 using MermaidStudio.Application.Export;
 using MermaidStudio.Application.Import;
@@ -40,11 +41,19 @@ public partial class MainWindow : Window
     private readonly FlowchartMermaidImportService _flowchartImportService = new();
     private readonly StateDiagramMermaidImportService _stateDiagramImportService = new();
 
+    private readonly DispatcherTimer _mermaidDebounceTimer = new()
+    {
+        Interval = TimeSpan.FromMilliseconds(600)
+    };
+
     private DiagramFlowDirection _currentDiagramFlowDirection = DiagramFlowDirection.LR;
 
     private bool _uiReady;
     private bool _suspendFlowDirectionHandling;
     private bool _suspendDiagramKindHandling;
+
+    private bool _isUpdatingMermaidEditorFromDocument;
+    private bool _isApplyingMermaidTextToDocument;
 
     public MainWindow()
     {
@@ -61,11 +70,15 @@ public partial class MainWindow : Window
         GetInspector().ApplyEdgeLabelRequested += OnApplyEdgeLabelRequested;
         GetInspector().ApplyEdgeStyleRequested += OnApplyEdgeStyleRequested;
 
+        GetMermaidEditor().MermaidTextChanged += OnMermaidEditorTextChanged;
+        _mermaidDebounceTimer.Tick += OnMermaidDebounceTick;
+
         _uiReady = true;
 
         SyncWorkspaceDocumentIfNeeded();
         ApplyDiagramKindToUi();
         RefreshInspector();
+        SyncMermaidEditorFromDocument();
     }
 
     private DiagramWorkspaceControl GetWorkspace()
@@ -75,6 +88,10 @@ public partial class MainWindow : Window
     private InspectorPaneControl GetInspector()
         => this.FindControl<InspectorPaneControl>("InspectorPane")
            ?? throw new InvalidOperationException("InspectorPane introuvable dans MainWindow.");
+
+    private MermaidEditorPaneControl GetMermaidEditor()
+        => this.FindControl<MermaidEditorPaneControl>("MermaidEditorPane")
+           ?? throw new InvalidOperationException("MermaidEditorPane introuvable dans MainWindow.");
 
     private ComboBox GetDiagramKindComboBox()
         => this.FindControl<ComboBox>("DiagramKindComboBox")
@@ -97,6 +114,9 @@ public partial class MainWindow : Window
     private void OnWorkspaceStateChanged(object? sender, EventArgs e)
     {
         RefreshInspector();
+
+        if (!_isApplyingMermaidTextToDocument)
+            SyncMermaidEditorFromDocument();
     }
 
     // =========================================================
@@ -127,6 +147,7 @@ public partial class MainWindow : Window
         ApplyDocumentDirectionToUi();
         GetWorkspace().LoadCurrentDocument(_currentDiagramFlowDirection);
         RefreshInspector();
+        SyncMermaidEditorFromDocument();
         Focus();
     }
 
@@ -249,7 +270,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            GetInspector().MermaidOutputText = $"Load JSON failed: {ex.Message}";
+            GetMermaidEditor().SetError($"Load JSON failed: {ex.Message}");
         }
     }
 
@@ -279,7 +300,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            GetInspector().MermaidOutputText = $"Import Mermaid failed: {ex.Message}";
+            GetMermaidEditor().SetError($"Import Mermaid failed: {ex.Message}");
         }
     }
 
@@ -342,6 +363,10 @@ public partial class MainWindow : Window
         ApplyDocumentDirectionToUi();
         GetWorkspace().LoadCurrentDocument(_currentDiagramFlowDirection);
         RefreshInspector();
+
+        if (!_isApplyingMermaidTextToDocument)
+            SyncMermaidEditorFromDocument();
+
         Focus();
     }
 
@@ -359,6 +384,90 @@ public partial class MainWindow : Window
             _ => 0
         };
         _suspendFlowDirectionHandling = false;
+    }
+
+    // =========================================================
+    // Mermaid split view sync
+    // =========================================================
+    private void SyncMermaidEditorFromDocument()
+    {
+        var text = BuildMermaidTextFromCurrentDocument();
+
+        _isUpdatingMermaidEditorFromDocument = true;
+        try
+        {
+            GetMermaidEditor().SetMermaidTextSilently(text);
+            GetMermaidEditor().ClearError();
+        }
+        finally
+        {
+            _isUpdatingMermaidEditorFromDocument = false;
+        }
+    }
+
+    private string BuildMermaidTextFromCurrentDocument()
+    {
+        if (CurrentDiagramKind == DiagramKind.Flowchart)
+        {
+            var exportModel = BuildFlowchartExportModelFromDocument();
+            return _flowchartExportService.Export(exportModel);
+        }
+
+        return _stateDiagramExportService.Export(_documentService.CurrentDocument);
+    }
+
+    private void OnMermaidEditorTextChanged(object? sender, EventArgs e)
+    {
+        if (_isUpdatingMermaidEditorFromDocument)
+            return;
+
+        GetMermaidEditor().ClearError();
+
+        _mermaidDebounceTimer.Stop();
+        _mermaidDebounceTimer.Start();
+    }
+
+    private void OnMermaidDebounceTick(object? sender, EventArgs e)
+    {
+        _mermaidDebounceTimer.Stop();
+
+        if (_isUpdatingMermaidEditorFromDocument)
+            return;
+
+        var mermaidText = GetMermaidEditor().MermaidText;
+
+        if (string.IsNullOrWhiteSpace(mermaidText))
+        {
+            GetMermaidEditor().SetError("Mermaid source is empty.");
+            return;
+        }
+
+        try
+        {
+            var importKind = DetectMermaidImportKind(mermaidText);
+
+            var document = importKind switch
+            {
+                MermaidImportKind.Flowchart => _flowchartImportService.Import(mermaidText),
+                MermaidImportKind.StateDiagram => _stateDiagramImportService.Import(mermaidText),
+                _ => throw new InvalidOperationException("Type Mermaid non supporté.")
+            };
+
+            _isApplyingMermaidTextToDocument = true;
+            try
+            {
+                LoadDocumentIntoShell(document);
+                GetMermaidEditor().ClearError();
+            }
+            finally
+            {
+                _isApplyingMermaidTextToDocument = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            GetMermaidEditor().SetError(ex.Message);
+        }
     }
 
     // =========================================================
@@ -382,110 +491,97 @@ public partial class MainWindow : Window
     {
         var canvas = GetWorkspace().GetCanvas();
 
-        var state = _inspectorStateService.BuildState<NodeControl, EdgeControl>(
-            isNodeActive: node => canvas.Children.Contains(node),
-            resolveNodeId: node => (node.DataContext as Node)?.Id.Value,
-            isEdgeActive: edge => canvas.Children.Contains(edge),
-            resolveEdgeEndpoints: edge =>
-            {
-                var sourceNode = edge.SourceNode.DataContext as Node;
-                var targetNode = edge.TargetNode.DataContext as Node;
-
-                if (sourceNode == null || targetNode == null)
-                    return null;
-
-                return (sourceNode.Id.Value, targetNode.Id.Value);
-            });
-
-        if (state.ClearSelectionRequested)
+        var selectedNode = GetWorkspace().GetSelectedFlowNode();
+        if (selectedNode?.DataContext is Node flowNode &&
+            canvas.Children.Contains(selectedNode))
         {
-            _selectionService.ClearSelection();
-
-            state = _inspectorStateService.BuildState<NodeControl, EdgeControl>(
-                isNodeActive: node => canvas.Children.Contains(node),
-                resolveNodeId: node => (node.DataContext as Node)?.Id.Value,
-                isEdgeActive: edge => canvas.Children.Contains(edge),
-                resolveEdgeEndpoints: edge =>
-                {
-                    var sourceNode = edge.SourceNode.DataContext as Node;
-                    var targetNode = edge.TargetNode.DataContext as Node;
-
-                    if (sourceNode == null || targetNode == null)
-                        return null;
-
-                    return (sourceNode.Id.Value, targetNode.Id.Value);
-                });
+            GetInspector().ShowFlowNode(
+                id: flowNode.Id.Value,
+                label: flowNode.Label,
+                nodeStyleIndex: GetNodeStyleIndex(flowNode.VisualStyle),
+                x: flowNode.X.ToString("0.##"),
+                y: flowNode.Y.ToString("0.##"));
+            return;
         }
 
-        GetInspector().ApplyState(
-            nodeSectionEnabled: state.NodeSectionEnabled,
-            nodeLabel: state.NodeLabel,
-            nodeStyleIndex: state.NodeStyleIndex,
-            nodeStyleEnabled: state.NodeSectionEnabled,
-            edgeSectionEnabled: state.EdgeSectionEnabled,
-            edgeLabel: state.EdgeLabel,
-            edgeStyleIndex: state.EdgeStyleIndex,
-            edgeDirectionIndex: state.EdgeDirectionIndex,
-            edgeStyleEnabled: state.EdgeSectionEnabled,
-            edgeDirectionEnabled: state.EdgeSectionEnabled,
-            edgeStyleApplyEnabled: state.EdgeSectionEnabled);
+        var selectedEdge = GetWorkspace().GetSelectedFlowEdge();
+        if (selectedEdge != null &&
+            canvas.Children.Contains(selectedEdge))
+        {
+            var sourceNode = selectedEdge.SourceNode.DataContext as Node;
+            var targetNode = selectedEdge.TargetNode.DataContext as Node;
+            var edgeId = sourceNode != null && targetNode != null
+                ? $"{sourceNode.Id.Value} -> {targetNode.Id.Value}"
+                : "Edge";
+
+            GetInspector().ShowFlowEdge(
+                id: edgeId,
+                label: selectedEdge.Label,
+                edgeStyleIndex: GetEdgeStyleIndex(selectedEdge.StyleKind),
+                edgeDirectionIndex: selectedEdge.Direction == EdgeDirection.Reverse ? 1 : 0);
+            return;
+        }
+
+        GetInspector().ShowNoSelection();
     }
 
     private void RefreshStateInspector()
     {
+        var canvas = GetWorkspace().GetCanvas();
+
         var selectedStateNode = GetWorkspace().GetSelectedStateNode();
         if (selectedStateNode?.DataContext is StateNode stateNode &&
-            GetWorkspace().GetCanvas().Children.Contains(selectedStateNode))
+            canvas.Children.Contains(selectedStateNode))
         {
-            var labelEnabled = stateNode.Kind == StateNodeKind.Normal;
+            var labelEditable = stateNode.Kind == StateNodeKind.Normal;
+            var labelValue = labelEditable
+                ? stateNode.Label
+                : stateNode.Kind switch
+                {
+                    StateNodeKind.Start => "Start",
+                    StateNodeKind.End => "End",
+                    _ => stateNode.Label
+                };
 
-            GetInspector().ApplyState(
-                nodeSectionEnabled: labelEnabled,
-                nodeLabel: stateNode.Label,
-                nodeStyleIndex: 0,
-                nodeStyleEnabled: false,
-                edgeSectionEnabled: false,
-                edgeLabel: string.Empty,
-                edgeStyleIndex: 0,
-                edgeDirectionIndex: 0,
-                edgeStyleEnabled: false,
-                edgeDirectionEnabled: false,
-                edgeStyleApplyEnabled: false);
+            GetInspector().ShowStateNode(
+                id: stateNode.Id.Value,
+                stateKind: stateNode.Kind.ToString(),
+                labelEditable: labelEditable,
+                labelValue: labelValue,
+                x: stateNode.X.ToString("0.##"),
+                y: stateNode.Y.ToString("0.##"));
             return;
         }
 
         var selectedTransition = GetWorkspace().GetSelectedStateTransition();
         if (selectedTransition != null &&
-            GetWorkspace().GetCanvas().Children.Contains(selectedTransition))
+            canvas.Children.Contains(selectedTransition))
         {
-            GetInspector().ApplyState(
-                nodeSectionEnabled: false,
-                nodeLabel: string.Empty,
-                nodeStyleIndex: 0,
-                nodeStyleEnabled: false,
-                edgeSectionEnabled: true,
-                edgeLabel: selectedTransition.Model.Label,
-                edgeStyleIndex: 0,
-                edgeDirectionIndex: 0,
-                edgeStyleEnabled: false,
-                edgeDirectionEnabled: false,
-                edgeStyleApplyEnabled: false);
+            GetInspector().ShowStateTransition(
+                id: selectedTransition.Model.Id.Value,
+                label: selectedTransition.Model.Label);
             return;
         }
 
-        GetInspector().ApplyState(
-            nodeSectionEnabled: false,
-            nodeLabel: string.Empty,
-            nodeStyleIndex: 0,
-            nodeStyleEnabled: false,
-            edgeSectionEnabled: false,
-            edgeLabel: string.Empty,
-            edgeStyleIndex: 0,
-            edgeDirectionIndex: 0,
-            edgeStyleEnabled: false,
-            edgeDirectionEnabled: false,
-            edgeStyleApplyEnabled: false);
+        GetInspector().ShowNoSelection();
     }
+
+    private static int GetNodeStyleIndex(NodeVisualStyle style)
+        => style switch
+        {
+            NodeVisualStyle.Rounded => 1,
+            NodeVisualStyle.Decision => 2,
+            NodeVisualStyle.Circle => 3,
+            _ => 0
+        };
+
+    private static int GetEdgeStyleIndex(EdgeStyleKind style)
+        => style switch
+        {
+            EdgeStyleKind.Dashed => 1,
+            EdgeStyleKind.Thick => 2,
+            _ => 0
+        };
 
     // =========================================================
     // Inspector actions
@@ -549,14 +645,7 @@ public partial class MainWindow : Window
     // =========================================================
     private void OnExportMermaidClicked(object? sender, RoutedEventArgs e)
     {
-        if (CurrentDiagramKind == DiagramKind.Flowchart)
-        {
-            var exportModel = BuildFlowchartExportModelFromDocument();
-            GetInspector().MermaidOutputText = _flowchartExportService.Export(exportModel);
-            return;
-        }
-
-        GetInspector().MermaidOutputText = _stateDiagramExportService.Export(_documentService.CurrentDocument);
+        SyncMermaidEditorFromDocument();
     }
 
     private FlowchartExportModel BuildFlowchartExportModelFromDocument()

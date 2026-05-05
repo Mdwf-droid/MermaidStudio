@@ -1,0 +1,115 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="MermaidStudio.UI.Avalonia.Controls.StateNodeInspectorView"
+             x:CompileBindings="False"
+             Background="#1B1B1B"
+             HorizontalAlignment="Stretch">
+
+	<Grid HorizontalAlignment="Stretch">
+		<StackPanel Spacing="10"
+                    HorizontalAlignment="Stretch">
+
+			<Expander Header="Selection"
+                      IsExpanded="True"
+                      HorizontalAlignment="Stretch">
+				<Border Background="#202020"
+                        BorderBrush="#313131"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="10"
+                        Margin="0,6,0,0"
+                        HorizontalAlignment="Stretch">
+					<Grid ColumnDefinitions="120,*"
+                          RowDefinitions="Auto,Auto,Auto"
+                          ColumnSpacing="10"
+                          RowSpacing="8"
+                          HorizontalAlignment="Stretch">
+						<TextBlock Grid.Row="0" Grid.Column="0" Text="Type" Foreground="#D0D0D0"/>
+						<TextBox x:Name="SelectionTypeTextBox" Grid.Row="0" Grid.Column="1" IsReadOnly="True"/>
+
+						<TextBlock Grid.Row="1" Grid.Column="0" Text="Id" Foreground="#D0D0D0"/>
+						<TextBox x:Name="SelectionIdTextBox" Grid.Row="1" Grid.Column="1" IsReadOnly="True"/>
+
+						<TextBlock Grid.Row="2" Grid.Column="0" Text="Kind" Foreground="#D0D0D0"/>
+						<TextBox x:Name="SelectionKindTextBox" Grid.Row="2" Grid.Column="1" IsReadOnly="True"/>
+					</Grid>
+				</Border>
+			</Expander>
+
+			<Expander Header="General"
+                      IsExpanded="True"
+                      HorizontalAlignment="Stretch">
+				<Border Background="#202020"
+                        BorderBrush="#313131"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="10"
+                        Margin="0,6,0,0"
+                        HorizontalAlignment="Stretch">
+					<Grid ColumnDefinitions="120,*"
+                          RowDefinitions="Auto,Auto"
+                          ColumnSpacing="10"
+                          RowSpacing="8"
+                          HorizontalAlignment="Stretch">
+						<TextBlock Grid.Row="0" Grid.Column="0" Text="Label" Foreground="#D0D0D0"/>
+						<TextBox x:Name="StateLabelTextBox" Grid.Row="0" Grid.Column="1" IsEnabled="False"/>
+
+						<Button x:Name="ApplyStateLabelButton"
+                                Grid.Row="1"
+                                Grid.Column="1"
+                                HorizontalAlignment="Left"
+                                Content="Apply Label"
+                                IsEnabled="False"
+                                Click="OnApplyStateLabelClicked"/>
+					</Grid>
+				</Border>
+			</Expander>
+
+			<Expander Header="State"
+                      IsExpanded="True"
+                      HorizontalAlignment="Stretch">
+				<Border Background="#202020"
+                        BorderBrush="#313131"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="10"
+                        Margin="0,6,0,0"
+                        HorizontalAlignment="Stretch">
+					<Grid ColumnDefinitions="120,*"
+                          RowDefinitions="Auto"
+                          ColumnSpacing="10"
+                          RowSpacing="8"
+                          HorizontalAlignment="Stretch">
+						<TextBlock Grid.Row="0" Grid.Column="0" Text="State Kind" Foreground="#D0D0D0"/>
+						<TextBox x:Name="StateKindTextBox" Grid.Row="0" Grid.Column="1" IsReadOnly="True"/>
+					</Grid>
+				</Border>
+			</Expander>
+
+			<Expander Header="Layout"
+                      IsExpanded="False"
+                      HorizontalAlignment="Stretch">
+				<Border Background="#202020"
+                        BorderBrush="#313131"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="10"
+                        Margin="0,6,0,0"
+                        HorizontalAlignment="Stretch">
+					<Grid ColumnDefinitions="120,*"
+                          RowDefinitions="Auto,Auto"
+                          ColumnSpacing="10"
+                          RowSpacing="8"
+                          HorizontalAlignment="Stretch">
+						<TextBlock Grid.Row="0" Grid.Column="0" Text="X" Foreground="#D0D0D0"/>
+						<TextBox x:Name="LayoutXTextBox" Grid.Row="0" Grid.Column="1" IsReadOnly="True"/>
+
+						<TextBlock Grid.Row="1" Grid.Column="0" Text="Y" Foreground="#D0D0D0"/>
+						<TextBox x:Name="LayoutYTextBox" Grid.Row="1" Grid.Column="1" IsReadOnly="True"/>
+					</Grid>
+				</Border>
+			</Expander>
+
+		</StackPanel>
+	</Grid>
+</UserControl>

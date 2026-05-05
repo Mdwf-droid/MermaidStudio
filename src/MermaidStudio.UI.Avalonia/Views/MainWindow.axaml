@@ -3,24 +3,23 @@
         xmlns:controls="clr-namespace:MermaidStudio.UI.Avalonia.Controls"
         x:Class="MermaidStudio.UI.Avalonia.Views.MainWindow"
         x:CompileBindings="False"
-        Width="1500"
-        Height="850"
+        Width="1700"
+        Height="900"
         Title="MermaidStudio"
         Background="#1E1E1E"
         KeyDown="OnWindowKeyDown">
 
 	<Grid RowDefinitions="Auto,*"
-          ColumnDefinitions="*,380">
+          ColumnDefinitions="*,6,460,6,360">
 
-		<!-- Barre haute -->
 		<Border Grid.Row="0"
-                Grid.ColumnSpan="2"
+                Grid.ColumnSpan="5"
                 Background="#252526"
                 BorderBrush="#333333"
                 BorderThickness="0,0,0,1"
                 Padding="8">
 			<DockPanel>
-				<TextBlock Text="MermaidStudio — R3.B Viewport"
+				<TextBlock Text="MermaidStudio — R3.C Contextual Inspector"
                            Foreground="White"
                            VerticalAlignment="Center"/>
 
@@ -94,14 +93,30 @@
 			</DockPanel>
 		</Border>
 
-		<!-- Workspace -->
 		<controls:DiagramWorkspaceControl x:Name="WorkspaceControl"
                                           Grid.Row="1"
                                           Grid.Column="0"/>
 
-		<!-- Inspector -->
+		<GridSplitter Grid.Row="1"
+                      Grid.Column="1"
+                      Width="6"
+                      HorizontalAlignment="Stretch"
+                      ResizeBehavior="PreviousAndNext"
+                      Background="#2B2B2B"/>
+
+		<controls:MermaidEditorPaneControl x:Name="MermaidEditorPane"
+                                           Grid.Row="1"
+                                           Grid.Column="2"/>
+
+		<GridSplitter Grid.Row="1"
+                      Grid.Column="3"
+                      Width="6"
+                      HorizontalAlignment="Stretch"
+                      ResizeBehavior="PreviousAndNext"
+                      Background="#2B2B2B"/>
+
 		<controls:InspectorPaneControl x:Name="InspectorPane"
                                        Grid.Row="1"
-                                       Grid.Column="1"/>
+                                       Grid.Column="4"/>
 	</Grid>
 </Window>

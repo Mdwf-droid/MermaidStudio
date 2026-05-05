@@ -16,4 +16,9 @@
     <ProjectReference Include="..\MermaidStudio.Domain\MermaidStudio.Domain.csproj" />
     <ProjectReference Include="..\MermaidStudio.Application\MermaidStudio.Application.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Update="Controls\MermaidEditorPaneControl.axaml.cs">
+      <DependentUpon>MermaidEditorPaneControl.axaml</DependentUpon>
+    </Compile>
+  </ItemGroup>
 </Project>
