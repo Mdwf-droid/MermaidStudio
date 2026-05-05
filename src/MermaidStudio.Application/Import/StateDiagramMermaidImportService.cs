@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Text.RegularExpressions;
+using MermaidStudio.Application.Layout;
 using MermaidStudio.Domain.Core;
 using MermaidStudio.Domain.Diagrams;
 using MermaidStudio.Domain.States;
@@ -32,6 +33,8 @@ public sealed class StateDiagramMermaidImportService
 
     private const string StartPseudoId = "__state_start__";
     private const string EndPseudoId = "__state_end__";
+
+    private readonly StateDiagramLayoutService _layoutService = new();
 
     public DiagramDocument Import(string mermaidText)
     {
@@ -155,7 +158,7 @@ public sealed class StateDiagramMermaidImportService
         if (!headerFound)
             throw new InvalidOperationException("Aucun en-tête 'stateDiagram-v2' valide n'a été trouvé.");
 
-        ApplyVerticalStateLayout(document);
+        _layoutService.ApplyLayout(document);
         return document;
     }
 
@@ -247,105 +250,4 @@ public sealed class StateDiagramMermaidImportService
 
     private static string UnescapeLabel(string value)
         => value.Replace("\\\"", "\"");
-
-    private static void ApplyVerticalStateLayout(DiagramDocument document)
-    {
-        if (document.StateNodes.Count == 0)
-            return;
-
-        var orderIndex = document.StateNodes
-            .Select((n, i) => new { n.Id.Value, Index = i })
-            .ToDictionary(x => x.Value, x => x.Index, StringComparer.Ordinal);
-
-        var outgoing = document.StateNodes.ToDictionary(
-            n => n.Id.Value,
-            _ => new List<string>(),
-            StringComparer.Ordinal);
-
-        var indegree = document.StateNodes.ToDictionary(
-            n => n.Id.Value,
-            _ => 0,
-            StringComparer.Ordinal);
-
-        foreach (var transition in document.StateTransitions)
-        {
-            var sourceId = transition.SourceStateId.Value;
-            var targetId = transition.TargetStateId.Value;
-
-            if (!outgoing.ContainsKey(sourceId) || !indegree.ContainsKey(targetId))
-                continue;
-
-            if (!outgoing[sourceId].Contains(targetId, StringComparer.Ordinal))
-                outgoing[sourceId].Add(targetId);
-
-            indegree[targetId]++;
-        }
-
-        foreach (var key in outgoing.Keys.ToList())
-        {
-            outgoing[key] = outgoing[key]
-                .OrderBy(id => orderIndex[id])
-                .ToList();
-        }
-
-        var levelById = document.StateNodes.ToDictionary(
-            n => n.Id.Value,
-            _ => 0,
-            StringComparer.Ordinal);
-
-        var queue = new Queue<string>(
-            indegree
-                .Where(kv => kv.Value == 0)
-                .OrderBy(kv => orderIndex[kv.Key])
-                .Select(kv => kv.Key));
-
-        var processed = new HashSet<string>(StringComparer.Ordinal);
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            if (!processed.Add(current))
-                continue;
-
-            var currentLevel = levelById[current];
-
-            foreach (var next in outgoing[current])
-            {
-                levelById[next] = Math.Max(levelById[next], currentLevel + 1);
-                indegree[next]--;
-
-                if (indegree[next] == 0)
-                    queue.Enqueue(next);
-            }
-        }
-
-        foreach (var node in document.StateNodes.OrderBy(n => orderIndex[n.Id.Value]))
-        {
-            if (!processed.Contains(node.Id.Value))
-                levelById[node.Id.Value] = Math.Max(levelById[node.Id.Value], 0);
-        }
-
-        var levels = document.StateNodes
-            .GroupBy(n => levelById[n.Id.Value])
-            .OrderBy(g => g.Key)
-            .Select(g => g.OrderBy(n => orderIndex[n.Id.Value]).ToList())
-            .ToList();
-
-        const double baseX = 120;
-        const double baseY = 90;
-        const double deltaX = 230;
-        const double deltaY = 130;
-
-        for (int levelIndex = 0; levelIndex < levels.Count; levelIndex++)
-        {
-            var levelNodes = levels[levelIndex];
-
-            for (int i = 0; i < levelNodes.Count; i++)
-            {
-                var node = levelNodes[i];
-                node.X = baseX + i * deltaX;
-                node.Y = baseY + levelIndex * deltaY;
-            }
-        }
-    }
 }

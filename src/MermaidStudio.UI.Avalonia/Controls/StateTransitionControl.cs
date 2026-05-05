@@ -219,8 +219,26 @@ public sealed class StateTransitionControl : Canvas
         var size = _labelBorder.DesiredSize;
 
         var normal = Normalize(labelNormal);
-        var finalX = labelPoint.X + normal.X * 18;
-        var finalY = labelPoint.Y + normal.Y * 18;
+        if (normal.Length < 0.001)
+            normal = new Vector(0, -1);
+
+        // Décalage principal hors de la courbe
+        const double outwardOffset = 22.0;
+
+        // Petite variation déterministe pour mieux séparer des labels proches
+        var sourceId = (_source.DataContext as StateNode)?.Id.Value ?? "S";
+        var targetId = (_target.DataContext as StateNode)?.Id.Value ?? "T";
+        var key = sourceId + "->" + targetId;
+        var parity = Math.Abs(key.GetHashCode()) % 3;
+        var jitter = parity switch
+        {
+            1 => 12.0,
+            2 => -12.0,
+            _ => 0.0
+        };
+
+        var finalX = labelPoint.X + normal.X * outwardOffset + normal.X * jitter;
+        var finalY = labelPoint.Y + normal.Y * outwardOffset + normal.Y * jitter;
 
         SetLeft(_labelBorder, finalX - size.Width / 2);
         SetTop(_labelBorder, finalY - size.Height / 2);
